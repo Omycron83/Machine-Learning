@@ -1,0 +1,18 @@
+import numpy as np
+#Intuitively, a GP will need kernel functions in order to define a Gaussian Distribution's Covariance Matrix
+#The more points are apart, the stronger the value should be
+#I.e.: Cov = K, where K_i,j = k(x, y)
+
+def RBF(x, x_hat, tau):
+    return tau[0]**2 * np.exp(-1/2 * ((x - x_hat) / tau[1])**2)
+#Tau: sigma and l in list
+params = [0.5, 0.2]
+print(RBF(0.01, 0.02, params))
+
+def OneD_LinearKernel(x, x_hat, v):
+    return v * x * x_hat
+
+def periodic_kernel(x, x_hat, params):
+    return np.exp(2/params[0]**2 * np.sin(np.pi / params[1] * np.abs(x - x_hat))**2)
+
+
