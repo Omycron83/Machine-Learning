@@ -553,9 +553,9 @@ class RNN_many_to_many(cont_feedforward_nn):
         self.weights.append(self.weight(prev + 1, len_output))
     
     def forward_propagation(self, inputs, pred, error, dropout = []):
-        #Every row means one datapoint in the time series, each column the corresponding features
+        #Every row represents one datapoint in the time series, each column the corresponding features
         #hstacked to the columns is the "memory" of the rnn
-        #In essence, we do stochastic gradient descent on every string of time-series data
+        #In essence, we do stochastic gradient descent on every "string" of time-series data
         self.pred = np.array(pred)
         self.layers_for = []
         self.layer_input = [np.hstack((np.zeros((inputs[0].shape[1], 0)), np.ones((inputs[0].shape[1], 0)), inputs[0]))]
@@ -636,10 +636,6 @@ def softmaxDeriv(x, y):
 def const(Z):
     return np.ones(Z.shape)
 
-
-x = modular_NN([400, 10, 10], ReLU, ReLUDeriv, output, const, MSE, MSE_out_deriv)
-for i in range(500):
-    print(x.ordinary_gradient_descent(np.zeros((1, 400)), np.ones((1, 10)), 0.01, 0))
 def get_info():
     print("In order to build a neural network, you have to call the cont_feedforward_nn class.")
     print("There, you have to specify:")
