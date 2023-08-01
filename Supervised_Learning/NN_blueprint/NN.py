@@ -260,7 +260,7 @@ class modular_NN(neural_network):
     def output_layer(self):
         return self.layers[-1].output    
 
-#"Naive" implementation of an ordinary neural network
+#"Naive" finished implementation of an ordinary neural network, past project
 class cont_feedforward_nn(neural_network):
     class weight:
         def __init__(self, input_size, output_size):

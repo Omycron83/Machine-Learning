@@ -58,13 +58,13 @@ class DDQN:
                     argmax_target = int(np.where(target_network.layers_for[-1].z[0] == max(target_network.layers_for[-1].z[0]))[0])
                     target_reward[int(rewards_action_shuffled[i, 1])] = rewards_action_shuffled[i, 0] + discount_rate * update_network.layers_for[-1].z[0, int(argmax_target)]
                 
-                cost += update_network.dqn_gradient_descent(learning_rate, inputs_shuffled[i].reshape(1, resulting_states_shuffled.shape[1]), target_reward, NN.MSE) 
+                cost += update_network.dqn_gradient_descent(inputs_shuffled[i].reshape(1, resulting_states_shuffled.shape[1]), target_reward, NN.MSE, alpha = learning_rate) 
             
 
             return cost / batchsize
             
 
-    def __init__(self, env, layers, alpha, batch_size, obs_space, action_space, min_replay, max_replay, discount, update_freq, disp_freq, epsilon, needed_reward, gamma = 0.99, train_freq = 3, episodes_solved = ""):
+    def __init__(self, env, layers, alpha, batch_size, obs_space, action_space, min_replay, max_replay, discount, update_freq, disp_freq, epsilon, needed_reward, gamma = 0.99, train_freq = 3, episodes_solved = "", terminal_reward = 0):
         #An environment needs the following methods: reset(self-explanatory), render(returns rendered array) and step(takes in an action, returns new state, reward, terminated and truncated)
         self.env = env
         #The target network is the network that is being copied every so often and that gives the target q values for training
@@ -81,6 +81,7 @@ class DDQN:
         self.batch_size = batch_size
         self.needed_reward = needed_reward
         self.train_freq = train_freq
+        self.terminal_reward = terminal_reward
         if episodes_solved == "":
             self.episodes_solved = self.disp_freq
         else:
@@ -120,8 +121,8 @@ class DDQN:
         #History of the test rewards
         self.reward_test_history = []
         error = 0
-        play_throughs = 0
-        while play_throughs < iterations:
+        self.play_throughs = 0
+        while self.play_throughs < iterations:
             #Epsilon decay with some value gamma
             if self.epsilon > 0.05:
                 self.epsilon *= self.gamma
@@ -140,7 +141,8 @@ class DDQN:
 
             #If we have entered a terminal state, s_t+1 is NaN to signify that we have entered a terminal state, and we reset the environment to get the first state of the next episode
             if terminated or truncated:
-                #reward += -20
+                reward += self.terminal_reward #: Optional reward at termination, not necessary if reward structure is reasonable
+                observation_new = observation_new.astype(np.float64)
                 observation_new[:] = np.nan
                 self.memory.update_history([[observation, observation_new, reward, action]])
                 observation, info = self.env.reset()
@@ -161,7 +163,7 @@ class DDQN:
             #When an episode is finished, we sometimes copy weights/visualize results
             if terminated or truncated:
                 self.reward_intermediate_history.append(reward_acc_episode)
-                if play_throughs % self.update_freq == 0:
+                if self.play_throughs % self.update_freq == 0:
                     import pathlib
                     path = str(pathlib.Path(__file__).parent.resolve()) + "weights.pkl"
                     weights = self.online_network.retrieve_weights()
@@ -172,19 +174,22 @@ class DDQN:
                 self.reward_test_history.append(x)
 
                 reward_acc = 0
-                for i in range(1, max([self.episodes_solved, len(self.reward_intermediate_history)]) + 1):
-                    reward_acc += self.reward_intermediate_history[-i] / max([self.episodes_solved, len(self.reward_intermediate_history)])
+                if len(self.reward_intermediate_history) != 1:
+                    for i in range(1, min([self.episodes_solved + 1, len(self.reward_intermediate_history)])):
+                        reward_acc += self.reward_intermediate_history[-i] / min([self.episodes_solved, len(self.reward_intermediate_history)])
+                else:
+                    reward_acc += self.reward_intermediate_history[-1]
 
                 #If we "solve" the environment, we might want to look at the results first.
                 if reward_acc > self.needed_reward and x > self.needed_reward:
-                    print("Prematurely ended with an average result of", reward_acc, "and an latest reward of", x, "at epsiode", play_throughs, ".")
+                    print("Prematurely ended with an average result of", reward_acc, "and an latest reward of", x, "at epsiode", self.play_throughs, ".")
                     break
 
-                if play_throughs % self.disp_freq == 0:
-                    print("At episode", play_throughs,"cost:", error, "current reward:", x, "average accumulated reward:", reward_acc, ".")
-                 
+                if self.play_throughs % self.disp_freq == 0:
+                    print("At episode", self.play_throughs,"cost:", error, "current reward:", x, "average accumulated reward:", reward_acc, ".")
+                
                 reward_acc_episode = 0
-                play_throughs += 1
+                self.play_throughs += 1
 
     def visualize(self, env_render, path, name):
         from matplotlib import animation
@@ -230,5 +235,5 @@ class DDQN:
         save_frames_as_gif(frames)
 
     def info(self):
-        print("Parameters: env, nodes, alpha, batchsize, input_len, output_len, min_replay, max_replay, discount, update_freq, disp_freq, epsilon, stop_reward, (gamma), (train_freq), (episodes_solved)")
-        print("Of this instance:", self.env, self.target_network.nodes, self.alpha, self.batch_size, "...", "...", self.memory.min_replay_size, self.memory.max_replay_size, self.discount, self.update_freq, self.epsilon, self.needed_reward, self.gamma, self.train_freq, self.episodes_solved)
+        print("Parameters: env, nodes, alpha, batchsize, input_len, output_len, min_replay, max_replay, discount, update_freq, disp_freq, epsilon, stop_reward, (gamma), (train_freq), (episodes_solved), (terminal reward)")
+        print("Of this instance:", self.env, self.target_network.nodes, self.alpha, self.batch_size, "...", "...", self.memory.min_replay_size, self.memory.max_replay_size, self.discount, self.update_freq, self.epsilon, self.needed_reward, self.gamma, self.train_freq, self.episodes_solved, self.terminal_reward)
