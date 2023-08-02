@@ -7,7 +7,6 @@ labels = data["EIGENFREQ_ALT_STUFE_5"].to_numpy()
 labels = labels.reshape((labels.shape[0], 1))
 train_data = data.to_numpy()
 train_data = np.delete(train_data, 1, 1)
-
 neuronales_netz = NN.cont_feedforward_nn(6, [60], NN.ReLU, NN.ReLUDeriv, NN.output, NN.MSE_out_deriv, 1)
 
 def k_fold_cross_val_nn(neuralnet, k, data, labels, alpha, _lambda, error_func):
