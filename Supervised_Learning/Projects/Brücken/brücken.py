@@ -1,44 +1,71 @@
+#Project that is supposed to be part of a paper exploring ML-applications in construction engineering
+#Reason: for a certain type of bridge commonly found in the german railroad network, the current formula for calculating eigenfrequencies seems to systematically overestimate them compared to actual measurements done empirically 
+#Through ML, a sharper estimate should be found based on the known features of the bridge as well as the result of the commonly used formula
+#Here, we will use k-fold-crossvalidation in order to test multiple kinds of models for this application
+#It is expected that XGBoost will produce superior performance on the tabular dataset, but we will explore multiple options
+
+#Importing libraries
 import NN
 import xgboost
+import linear_regression
 import pandas as pd
 import numpy as np
+from skopt.utils import use_named_args
+from skopt import gp_minimize
+
+#Loading in the data and preparing it
 data = pd.read_csv("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken_NN\DatensatzTraining.csv")
 labels = data["EIGENFREQ_ALT_STUFE_5"].to_numpy()
 labels = labels.reshape((labels.shape[0], 1))
 train_data = data.to_numpy()
 train_data = np.delete(train_data, 1, 1)
-neuronales_netz = NN.cont_feedforward_nn(6, [60], NN.ReLU, NN.ReLUDeriv, NN.output, NN.MSE_out_deriv, 1)
 
-def k_fold_cross_val_nn(neuralnet, k, data, labels, alpha, _lambda, error_func):
-    weights = neuralnet.retrieve_weights().copy()
-    p = np.random.permutation(data.shape[0])
-    shuffle_data = data[p]
-    shuffle_labels = labels[p]
+#Implementing k-fold-cv in order to efficiently perform hyperparameter search on the limited data available 
+#This is done for all models by keeping the parameters as well as the other functions variable
+#The parameters are represented as tuples, which are then unpacked in the function call (with "*")
+def k_fold_cross_val(k, features, labels, parameters, train_func, cost_func):
+    #Shuffling
+    p = np.random.permutation(features.shape[0])
+    shuffled_features = features[p]
+    shuffled_labels = labels[p]
     error = 0
     for l in range(k - 1):
-        neuronales_netz.assign_weights(weights)
-        print(neuralnet.forward_propagation(shuffle_data[data.shape[0] // k * l:data.shape[0] // k * (l+1), :], shuffle_labels[data.shape[0] // k * l:data.shape[0] // k * (l+1), :], error_func) / k)
-        for i in range(20):
-            neuronales_netz.stochastic_gradient_descent(alpha, _lambda, np.vstack((shuffle_data[0 : data.shape[0] // k * l, :], shuffle_data[data.shape[0] // k * (l + 1):, :])), np.vstack((shuffle_labels[0 : data.shape[0] // k * l, :], shuffle_labels[data.shape[0] // k * (l + 1):, :])), error_func)
-        error += neuralnet.forward_propagation(shuffle_data[data.shape[0] // k * l:data.shape[0] // k * (l+1), :], shuffle_labels[data.shape[0] // k * l:data.shape[0] // k * (l+1), :], error_func) / k
-    
-    neuronales_netz.assign_weights(weights)
-    for i in range(20):
-        neuronales_netz.stochastic_gradient_descent(alpha, _lambda, shuffle_data[0 : data.shape[0] // k * (l + 1), :], shuffle_labels[0 : data.shape[0] // k * (l + 1), :], error_func)
-    error += neuralnet.forward_propagation(shuffle_data[data.shape[0] // k * (l + 1):, :], shuffle_labels[data.shape[0] // k * (l + 1):, :], error_func) / k
-    
+        #The test data of the current fold
+        test_features = shuffled_features[data.shape[0] // k * l:data.shape[0] // k * (l+1), :]
+        test_labels = shuffled_labels[data.shape[0] // k * l:data.shape[0] // k * (l+1), :]
+        #The remaining training data of the current fold
+        train_features = shuffled_features[data.shape[0] // k * l:data.shape[0] // k * (l+1), :]
+        train_labels = shuffled_labels[data.shape[0] // k * l:data.shape[0] // k * (l+1), :]
+        #Now, train the model on the current fold
+        train_func(train_features, train_labels, *parameters)
+        error += cost_func(test_features, test_labels) / k
+
+    #For the last fold, we dont really know the size of the holdout-set (we dont know about the divisibility of the amount of datapoints by k) so we do this seperately
+    #The test data of the last fold 
+    test_features = shuffled_features[0 : data.shape[0] // k * (l + 1), :]
+    test_labels = shuffled_labels[0 : data.shape[0] // k * (l + 1), :]
+    #The remaining training data of the last fold
+    train_features = shuffled_features[data.shape[0] // k * (l + 1):, :]
+    train_labels = shuffled_labels[data.shape[0] // k * (l + 1):, :]
+    #Now, train the model on the current fold
+    train_func(train_features, train_labels, *parameters)
+    error += cost_func(test_features, test_labels) / k
     return error
 
+#The hyperparameter tuning for each kind of model will be done using bayesian hyperparameter-optimization as implemented in the scikit-optimize library 
+#For the library to work, we only need the hyperparameter search space as well as the objective function (just a specification of the code above)
+
+#For the linear regression (with L2-Penalization):
+
+search_space = [(0, 5)]
+@use_named_args(search_space)
+def model_eval_linear(*params):
+    lin_model = new 
+
+#For the neural network:
+
+#For XGBoost:
 
 
-neuronales_netz.forward_propagation(train_data, labels, NN.MSE)
-for i in range(10):
-    print(i + 1, ":", neuronales_netz.stochastic_gradient_descent(0.001, 0, train_data, labels, NN.MSE))
 
-print(k_fold_cross_val_nn(neuronales_netz, 10, train_data, labels, 0.1, 0, NN.MSE))
-print(k_fold_cross_val_nn(neuronales_netz, 10, train_data, labels, 0.01, 0, NN.MSE))
-print(k_fold_cross_val_nn(neuronales_netz, 10, train_data, labels, 0.001, 0, NN.MSE))
-print(k_fold_cross_val_nn(neuronales_netz, 10, train_data, labels, 0.0001, 0, NN.MSE))
-print(k_fold_cross_val_nn(neuronales_netz, 10, train_data, labels, 0.00001, 0, NN.MSE))
-print(k_fold_cross_val_nn(neuronales_netz, 10, train_data, labels, 0.000001, 0, NN.MSE))
 

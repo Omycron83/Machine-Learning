@@ -18,3 +18,9 @@ setup(name="DecisionTree",
       description= "Package implementing various Decision-Tree-Algorithms given reasonable data.",
       packages=[r"D:\Damian\PC\Python\ML\Supervised_Learning\DecisionTree"],
       author= "Damian G.")
+
+setup(name = "LinRegr",
+      version= "0.1",
+      description="Package implementing the linear regression algorithm.",
+      packages=[r"D:\Damian\PC\Python\ML\Basic Algorithms\Linear Regression"],
+      author="Damian G.")
