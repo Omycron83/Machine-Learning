@@ -11,16 +11,19 @@ setup(name="NN",
       version="0.1",
       description= "Package implementing various Neural-Network types given reasonable data.",
       packages=[r"D:\Damian\PC\Python\ML\Supervised_Learning\NN_blueprint"],
-      author= "Damian G.")
+      author= "Damian G."
+      )
 
 setup(name="DecisionTree",
       version="0.1",
       description= "Package implementing various Decision-Tree-Algorithms given reasonable data.",
       packages=[r"D:\Damian\PC\Python\ML\Supervised_Learning\DecisionTree"],
-      author= "Damian G.")
+      author= "Damian G."
+      )
 
-setup(name = "LinRegr",
+setup(name = "LinearRegressions",
       version= "0.1",
       description="Package implementing the linear regression algorithm.",
-      packages=[r"D:\Damian\PC\Python\ML\Basic Algorithms\Linear Regression"],
-      author="Damian G.")
+      packages=[r"D:\Damian\PC\Python\ML\BasicAlgorithms\LinearRegression"],
+      author="Damian G."
+      )

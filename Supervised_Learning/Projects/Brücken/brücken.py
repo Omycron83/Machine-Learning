@@ -7,7 +7,7 @@
 #Importing libraries
 import NN
 import xgboost
-import linear_regression
+import linregr
 import pandas as pd
 import numpy as np
 from skopt.utils import use_named_args
@@ -60,7 +60,7 @@ def k_fold_cross_val(k, features, labels, parameters, train_func, cost_func):
 search_space = [(0, 5)]
 @use_named_args(search_space)
 def model_eval_linear(*params):
-    lin_model = new 
+    lin_model = LinRegr.linear_regression  
 
 #For the neural network:
 
