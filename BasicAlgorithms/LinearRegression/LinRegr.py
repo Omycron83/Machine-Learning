@@ -12,6 +12,9 @@ class linear_regression:
         features_bias = np.hstack((features, np.ones((features.shape[0], 1))))
         self.theta = np.linalg.inv(features_bias.T @ features_bias + self._lambda * np.identity(features_bias.shape[1])) @ features_bias.T @labels
 
+    def predict(self, features):
+        features_bias = np.hstack((features, np.ones((features.shape[0], 1))))
+        return features_bias @ self.theta
     def MSE(self, features, labels):
         features_bias = np.hstack((features, np.ones((features.shape[0], 1))))
         pred = (features_bias @ self.theta).reshape(features_bias.shape[0], self.theta.shape[1])
