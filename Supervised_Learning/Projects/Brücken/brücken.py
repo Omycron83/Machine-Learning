@@ -8,7 +8,8 @@
 import warnings
 #As there are a bunch of what have been found to be unenlightening warning messages those will be disabled for everyones convenience
 warnings.filterwarnings("ignore")
-
+import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
 import NN
 import xgboost
 import LinRegr 
@@ -27,6 +28,7 @@ train_data = data.to_numpy()
 train_data = np.delete(train_data, 1, 1)
 
 #Implementing k-fold-cv in order to efficiently perform hyperparameter search on the limited data available 
+global n
 def k_fold_cross_val(k, features, labels, train_func, cost_func):
     #Shuffling
     p = np.random.permutation(features.shape[0])
@@ -63,50 +65,91 @@ def k_fold_cross_val(k, features, labels, train_func, cost_func):
 
 #For the linear regression (with L2-Penalization):
 #params[0] = lambda
+n = 0
 def model_eval_linear(params):
+    global n
+    n += 1
+    if n % 100 == 0:
+        print("Iteration:", n)
     lin_model = LinRegr.linear_regression(train_data.shape[1], _lambda = params[0])
-    return k_fold_cross_val(10, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE)
-lin_opt = gp_minimize(model_eval_linear, [Real(0, 5)], n_calls = 10)
-print(lin_opt.fun, lin_opt.x)
-#print(lin_opt.func_vals)
-#print(lin_opt.x_iters)
-#lin_test = LinRegr.linear_regression(train_data.shape[1], 0)
-#lin_test.ridge_normal_eq(train_data, labels)
-#print(lin_test.MSE(train_data, labels))
+    return k_fold_cross_val(20, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE)
+lin_opt = gp_minimize(model_eval_linear, [Real(0, 5)], n_calls = 400)
+#Printing out the top results
+print("Linear results:", "Optimum:", lin_opt.fun,"With values", lin_opt.x)
+#Regressing on 70% of the data and then plotting the output variables on the test set vs real values
+lin_model = LinRegr.linear_regression(train_data.shape[1], _lambda = lin_opt.x)
+lin_model.ridge_normal_eq(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)])
+figure, axis = plt.subplots(3, 1)
+axis[0].scatter(labels[int(train_data.shape[0] * 0.7):], lin_model.predict(train_data[int(train_data.shape[0] * 0.7):]))
+axis[0].set_title("Linear")
+line = mlines.Line2D([0, 1], [0, 1], color='red')
+transform = axis[0].transAxes
+line.set_transform(transform)
+axis[0].set_xlim(0, data["EIGENFREQ_ALT_STUFE_5"].max())
+axis[0].set_ylim(0, data["EIGENFREQ_ALT_STUFE_5"].max())
+axis[0].add_line(line)
 
 #For the neural network:
 #params[0] = neurons, params[1] = dropout_perc, params[2] = batchsize adam, params[3] = learning rate, params[4] = lambda 
+n = 0
 def model_eval_nn(params):
+    global n
+    n += 1
+    if n % 100 == 0:
+        print("Iteration:", n)
     nn = NN.cont_feedforward_nn(train_data.shape[1], [params[0]], NN.ReLU, NN.ReLUDeriv, NN.output, NN.MSE_out_deriv, 1)
     untrained_weights = nn.retrieve_weights()
     def train(features, labels):
         nn.assign_weights(untrained_weights)
-        last = np.finfo(np.float64).max
-        curr = nn.adam(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4])
-        for i in range(150):
-            if last*0.998 < curr:
-                break
-            last = curr
+        nn.adam(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4])
+        for i in range(250):
             curr = nn.adam(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4])
 
     def cost(features, labels):
         return nn.forward_propagation(features, labels, NN.MSE)
     
-    return k_fold_cross_val(10, train_data, labels, train, cost)
-nn_opt = gp_minimize(model_eval_nn, [Integer(1, 1024), Real(0, 0.9999), Integer(8, 128), Real(0.00001, 0.001), Real(0, 5)], n_calls = 10)
-print(nn_opt.fun, nn_opt.x)
-
+    return k_fold_cross_val(20, train_data, labels, train, cost)
+nn_opt = gp_minimize(model_eval_nn, [Integer(1, 1024), Real(0, 0.9999), Integer(8, 128), Real(0.00001, 0.001), Real(0, 5)], n_calls = 2400)
+print("NN results:", "Optimum:", nn_opt.fun,"With values", nn_opt.x)
+nn_model = NN.cont_feedforward_nn(train_data.shape[1], [nn_opt.x[0]], NN.ReLU, NN.ReLUDeriv, NN.output, NN.MSE_out_deriv, 1)
+for i in range(250):
+    l = nn_model.adam(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)], NN.MSE, dropout= [nn_opt.x[1]], batchsize = nn_opt.x[2], alpha = nn_opt.x[3], _lambda = nn_opt.x[4])
+    if i % 10 == 0:
+        print(l)
+nn_model.forward_propagation(train_data[int(train_data.shape[0] * 0.7):], labels[int(train_data.shape[0] * 0.7):], NN.MSE)
+axis[1].scatter(labels[int(train_data.shape[0] * 0.7):], nn_model.output_layer())
+axis[1].set_title("NN")
+line = mlines.Line2D([0, 1], [0, 1], color='red')
+transform = axis[1].transAxes
+line.set_transform(transform)
+axis[1].set_xlim(0, data["EIGENFREQ_ALT_STUFE_5"].max())
+axis[1].set_ylim(0, data["EIGENFREQ_ALT_STUFE_5"].max())
+axis[1].add_line(line)
 #For XGBoost:
 #params[0] = gamma, params[1] = learning_rate, params[2] = max_depth, params[3] = n_estimators, params[4] = sub_sample, params[5] = min_child_weight, params[6] = reg_alpha, params[7] = reg_lambda
+n = 0
 def model_eval_xgboost(params):
+    global n
+    n += 1
+    if n % 100 == 0:
+        print("Iteration:", n)
     xgboost_reg = xgboost.XGBRegressor(gamma = params[0], learning_rate = params[1], max_depth = params[2], n_estimators = params[3], n_jobs = 16, objective = 'reg:squarederror', subsample = params[4], scale_pos_weight = 0, reg_alpha = params[6], reg_lambda = params[7], min_child_weight = params[5])
     def train(features, labels):
         xgboost_reg.fit(features, labels)
     def cost(features, labels):
         pred = xgboost_reg.predict(features).reshape(labels.shape[0], 1)
         return NN.MSE(pred, labels)
-    return k_fold_cross_val(10, train_data, labels, train, cost)
-xgboost_opt = gp_minimize(model_eval_xgboost, [Real(0, 20), Real(0.01, 0.2), Integer(3, 10), Integer(100, 1100), Real(0.5, 1), Integer(1, 10), Real(0, 5), Real(0, 5)], n_calls = 10)
-print(xgboost_opt.fun, xgboost_opt.x)
-
-
+    return k_fold_cross_val(20, train_data, labels, train, cost)
+xgboost_opt = gp_minimize(model_eval_xgboost, [Real(0, 20), Real(0.01, 0.2), Integer(3, 10), Integer(100, 1100), Real(0.5, 1), Integer(1, 10), Real(0, 5), Real(0, 5)], n_calls = 1200)
+print("XGBoost results:", "Optimum:", xgboost_opt.fun,"With values", xgboost_opt.x)
+xgboost_model = xgboost.XGBRegressor(gamma = xgboost_opt.x[0], learning_rate = xgboost_opt.x[1], max_depth = xgboost_opt.x[2], n_estimators = xgboost_opt.x[3], n_jobs = 16, objective = 'reg:squarederror', subsample = xgboost_opt.x[4], scale_pos_weight = 0, reg_alpha = xgboost_opt.x[6], reg_lambda = xgboost_opt.x[7], min_child_weight = xgboost_opt.x[5])
+xgboost_model.fit(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)])
+axis[2].scatter(labels[int(train_data.shape[0] * 0.7):], xgboost_model.predict(train_data[int(train_data.shape[0] * 0.7):]))
+axis[2].set_title("XGBoost")
+line = mlines.Line2D([0, 1], [0, 1], color='red')
+transform = axis[2].transAxes
+line.set_transform(transform)
+axis[2].set_xlim(0, data["EIGENFREQ_ALT_STUFE_5"].max())
+axis[2].set_ylim(0, data["EIGENFREQ_ALT_STUFE_5"].max())
+axis[2].add_line(line)
+plt.show()
