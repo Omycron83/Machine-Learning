@@ -10,6 +10,7 @@ import warnings
 warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
+import time
 import NN
 import xgboost
 import LinRegr 
@@ -73,7 +74,7 @@ def model_eval_linear(params):
         print("Iteration:", n)
     lin_model = LinRegr.linear_regression(train_data.shape[1], _lambda = params[0])
     return k_fold_cross_val(20, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE)
-lin_opt = gp_minimize(model_eval_linear, [Real(0, 5)], n_calls = 400)
+lin_opt = gp_minimize(model_eval_linear, [Real(0, 5)], n_calls = 12)
 #Printing out the top results
 print("Linear results:", "Optimum:", lin_opt.fun,"With values", lin_opt.x)
 #Regressing on 70% of the data and then plotting the output variables on the test set vs real values
@@ -95,21 +96,21 @@ n = 0
 def model_eval_nn(params):
     global n
     n += 1
-    if n % 100 == 0:
+    if n % 10 == 0:
         print("Iteration:", n)
     nn = NN.cont_feedforward_nn(train_data.shape[1], [params[0]], NN.ReLU, NN.ReLUDeriv, NN.output, NN.MSE_out_deriv, 1)
     untrained_weights = nn.retrieve_weights()
     def train(features, labels):
         nn.assign_weights(untrained_weights)
         nn.adam(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4])
-        for i in range(250):
+        for i in range(200):
             curr = nn.adam(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4])
 
     def cost(features, labels):
         return nn.forward_propagation(features, labels, NN.MSE)
     
     return k_fold_cross_val(20, train_data, labels, train, cost)
-nn_opt = gp_minimize(model_eval_nn, [Integer(1, 1024), Real(0, 0.9999), Integer(8, 128), Real(0.00001, 0.001), Real(0, 5)], n_calls = 2400)
+nn_opt = gp_minimize(model_eval_nn, [Integer(1, 1024), Real(0, 0.9999), Integer(8, 128), Real(0.00001, 0.001), Real(0, 5)], n_calls = 1200)
 print("NN results:", "Optimum:", nn_opt.fun,"With values", nn_opt.x)
 nn_model = NN.cont_feedforward_nn(train_data.shape[1], [nn_opt.x[0]], NN.ReLU, NN.ReLUDeriv, NN.output, NN.MSE_out_deriv, 1)
 for i in range(250):
