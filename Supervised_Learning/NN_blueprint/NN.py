@@ -298,8 +298,9 @@ class cont_feedforward_nn(neural_network):
         @numba.jit(forceobj = True)
         def __init__ (self, weights, prevLayer, output):
             self.z = output(prevLayer @ weights)
-    @numba.jit(forceobj = True)
+    #@numba.jit(forceobj = True)
     def forward_propagation(self, inputs, pred, error, dropout = []):
+        dropout = dropout.copy()
         self.pred = np.array(pred)
         if inputs.shape[0] == 1:
             inputs.reshape(1, inputs.shape[1])
@@ -310,9 +311,10 @@ class cont_feedforward_nn(neural_network):
         for i in range(len(self.nodes)):
             self.layers_for.append(self.layer(self.weights[i].theta, self.layer_input[-1], self.non_linear))
             if len(dropout) > 0:
-                layer_dropout = np.random.rand(self.layers_for[-1].z.shape[0], self.layers_for[-1].z.shape[1])
                 dropout_percentage = dropout.pop(0)
-                self.layers_for[-1].a *= np.hstack((np.ones((layer_dropout.shape[0], 1)), layer_dropout > (1-dropout_percentage) / (1-dropout_percentage))) 
+                layer_dropout = np.random.rand(self.layers_for[-1].z.shape[0], self.layers_for[-1].z.shape[1])
+                layer_dropout = (layer_dropout > (1-dropout_percentage)) / (1-dropout_percentage)
+                self.layers_for[-1].a *= np.hstack((np.ones((layer_dropout.shape[0], 1)), layer_dropout)) 
             self.layer_input.append(self.layers_for[-1].a)
         self.layers_for.append(self.outputs(self.weights[-1].theta, self.layer_input[-1], self.output))
         return error(self.layers_for[-1].z, self.pred)
@@ -367,7 +369,7 @@ class cont_feedforward_nn(neural_network):
             cost += self.ordinary_gradient_descent(self, alpha, _lambda, batch_X[i * batchsize:(i+1) * batchsize, :], batch_Y[i * batchsize:(i+1) * batchsize], error, dropout) / batchsize
         self.ordinary_gradient_descent(self, alpha, _lambda, batch_X[(i+1) * batchsize:, :], batch_Y[(i+1) * batchsize:], error, dropout) / (inputs.shape[0] * (pred.shape[0] // batchsize))
         return cost
-    @numba.jit(forceobj = True)
+    #@numba.jit(forceobj = True)
     def adam(self, inputs, pred, error, dropout = [], batchsize = 32, beta_1 = 0.9, beta_2 = 0.999, epsilon = 1e-8, alpha = 0.001, _lambda = 0):
         p = np.random.permutation(inputs.shape[0])
         batch_X = inputs[p]
@@ -402,10 +404,12 @@ class cont_feedforward_nn(neural_network):
         self.first_momentum = [np.zeros((i.theta.shape[0], i.theta.shape[1])) for i in self.weights]
         self.second_momentum = [np.zeros((i.theta.shape[0], i.theta.shape[1])) for i in self.weights]
         self.t = 1
+    #@numba.jit(forceobj = True)
     def adam_iterated(self, inputs, pred, error, dropout = [], batchsize = 32, beta_1 = 0.9, beta_2 = 0.999, epsilon = 1e-8, alpha = 0.001, _lambda = 0, iterations = 150):
         self.reset_adam()
         for i in range(iterations):
-            self.adam(inputs, pred, error, dropout, batchsize, beta_1, beta_2, epsilon, alpha, _lambda)
+            loss = self.adam(inputs, pred, error, dropout, batchsize, beta_1, beta_2, epsilon, alpha, _lambda)
+        return loss
     def BFGS(self):
         #direction = -H0 @ grad(xk)
         #perform line search to obtain ak, satisfying wolf conditions

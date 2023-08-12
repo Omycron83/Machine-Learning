@@ -143,7 +143,7 @@ def model_eval_xgboost(params):
         pred = xgboost_reg.predict(features).reshape(labels.shape[0], 1)
         return NN.MSE(pred, labels)
     return k_fold_cross_val(20, train_data, labels, train, cost)
-xgboost_opt = gp_minimize(model_eval_xgboost, [Real(0, 20), Real(0.01, 0.2), Integer(3, 10), Integer(100, 1100), Real(0.5, 1), Integer(1, 10), Real(0, 5), Real(0, 5)], n_calls = 1200)
+xgboost_opt = gp_minimize(model_eval_xgboost, [Real(0, 20), Real(0.01, 0.5), Integer(3, 10), Integer(100, 1100), Real(0.5, 1), Integer(1, 10), Real(0, 5), Real(0, 5)], n_calls = 1200)
 print("XGBoost results:", "Optimum:", xgboost_opt.fun,"With values", xgboost_opt.x)
 file_xgboost = open("xgboost.txt", "a")
 file_xgboost.write(str(xgboost_opt.fun) + " " + str(xgboost_opt.x))
