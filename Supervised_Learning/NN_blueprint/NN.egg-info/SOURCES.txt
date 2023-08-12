@@ -1,0 +1,7 @@
+setup.py
+D:/Damian/PC/Python/ML/Supervised_Learning/NN_blueprint/NN.py
+D:/Damian/PC/Python/ML/Supervised_Learning/NN_blueprint/__init__.py
+NN.egg-info/PKG-INFO
+NN.egg-info/SOURCES.txt
+NN.egg-info/dependency_links.txt
+NN.egg-info/top_level.txt

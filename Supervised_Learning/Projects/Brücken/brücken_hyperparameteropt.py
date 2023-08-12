@@ -10,7 +10,6 @@ import warnings
 warnings.filterwarnings("ignore")
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
-import time
 import NN
 import xgboost
 import LinRegr 
@@ -74,9 +73,12 @@ def model_eval_linear(params):
         print("Iteration:", n)
     lin_model = LinRegr.linear_regression(train_data.shape[1], _lambda = params[0])
     return k_fold_cross_val(20, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE)
-lin_opt = gp_minimize(model_eval_linear, [Real(0, 5)], n_calls = 12)
+lin_opt = gp_minimize(model_eval_linear, [Real(0, 5)], n_calls = 1200)
 #Printing out the top results
 print("Linear results:", "Optimum:", lin_opt.fun,"With values", lin_opt.x)
+file_linregr = open("LinRegr.txt", "a")
+file_linregr.write(str(lin_opt.fun) + " " + str(lin_opt.x))
+file_linregr.close()
 #Regressing on 70% of the data and then plotting the output variables on the test set vs real values
 lin_model = LinRegr.linear_regression(train_data.shape[1], _lambda = lin_opt.x)
 lin_model.ridge_normal_eq(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)])
@@ -102,16 +104,16 @@ def model_eval_nn(params):
     untrained_weights = nn.retrieve_weights()
     def train(features, labels):
         nn.assign_weights(untrained_weights)
-        nn.adam(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4])
-        for i in range(200):
-            curr = nn.adam(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4])
-
+        nn.adam_iterated(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4])
     def cost(features, labels):
         return nn.forward_propagation(features, labels, NN.MSE)
     
     return k_fold_cross_val(20, train_data, labels, train, cost)
 nn_opt = gp_minimize(model_eval_nn, [Integer(1, 1024), Real(0, 0.9999), Integer(8, 128), Real(0.00001, 0.001), Real(0, 5)], n_calls = 1200)
 print("NN results:", "Optimum:", nn_opt.fun,"With values", nn_opt.x)
+file_NN = open("NN.txt", "a")
+file_NN.write(str(nn_opt.fun) + " " + str(nn_opt.x))
+file_NN.close()
 nn_model = NN.cont_feedforward_nn(train_data.shape[1], [nn_opt.x[0]], NN.ReLU, NN.ReLUDeriv, NN.output, NN.MSE_out_deriv, 1)
 for i in range(250):
     l = nn_model.adam(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)], NN.MSE, dropout= [nn_opt.x[1]], batchsize = nn_opt.x[2], alpha = nn_opt.x[3], _lambda = nn_opt.x[4])
@@ -143,6 +145,9 @@ def model_eval_xgboost(params):
     return k_fold_cross_val(20, train_data, labels, train, cost)
 xgboost_opt = gp_minimize(model_eval_xgboost, [Real(0, 20), Real(0.01, 0.2), Integer(3, 10), Integer(100, 1100), Real(0.5, 1), Integer(1, 10), Real(0, 5), Real(0, 5)], n_calls = 1200)
 print("XGBoost results:", "Optimum:", xgboost_opt.fun,"With values", xgboost_opt.x)
+file_xgboost = open("xgboost.txt", "a")
+file_xgboost.write(str(xgboost_opt.fun) + " " + str(xgboost_opt.x))
+file_xgboost.close()
 xgboost_model = xgboost.XGBRegressor(gamma = xgboost_opt.x[0], learning_rate = xgboost_opt.x[1], max_depth = xgboost_opt.x[2], n_estimators = xgboost_opt.x[3], n_jobs = 16, objective = 'reg:squarederror', subsample = xgboost_opt.x[4], scale_pos_weight = 0, reg_alpha = xgboost_opt.x[6], reg_lambda = xgboost_opt.x[7], min_child_weight = xgboost_opt.x[5])
 xgboost_model.fit(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)])
 axis[2].scatter(labels[int(train_data.shape[0] * 0.7):], xgboost_model.predict(train_data[int(train_data.shape[0] * 0.7):]))
