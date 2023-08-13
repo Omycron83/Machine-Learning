@@ -298,7 +298,7 @@ class cont_feedforward_nn(neural_network):
         @numba.jit(forceobj = True)
         def __init__ (self, weights, prevLayer, output):
             self.z = output(prevLayer @ weights)
-    #@numba.jit(forceobj = True)
+    @numba.jit(forceobj = True)
     def forward_propagation(self, inputs, pred, error, dropout = []):
         dropout = dropout.copy()
         self.pred = np.array(pred)
@@ -369,7 +369,7 @@ class cont_feedforward_nn(neural_network):
             cost += self.ordinary_gradient_descent(self, alpha, _lambda, batch_X[i * batchsize:(i+1) * batchsize, :], batch_Y[i * batchsize:(i+1) * batchsize], error, dropout) / batchsize
         self.ordinary_gradient_descent(self, alpha, _lambda, batch_X[(i+1) * batchsize:, :], batch_Y[(i+1) * batchsize:], error, dropout) / (inputs.shape[0] * (pred.shape[0] // batchsize))
         return cost
-    #@numba.jit(forceobj = True)
+    @numba.jit(forceobj = True)
     def adam(self, inputs, pred, error, dropout = [], batchsize = 32, beta_1 = 0.9, beta_2 = 0.999, epsilon = 1e-8, alpha = 0.001, _lambda = 0):
         p = np.random.permutation(inputs.shape[0])
         batch_X = inputs[p]
@@ -404,7 +404,7 @@ class cont_feedforward_nn(neural_network):
         self.first_momentum = [np.zeros((i.theta.shape[0], i.theta.shape[1])) for i in self.weights]
         self.second_momentum = [np.zeros((i.theta.shape[0], i.theta.shape[1])) for i in self.weights]
         self.t = 1
-    #@numba.jit(forceobj = True)
+    @numba.jit(forceobj = True)
     def adam_iterated(self, inputs, pred, error, dropout = [], batchsize = 32, beta_1 = 0.9, beta_2 = 0.999, epsilon = 1e-8, alpha = 0.001, _lambda = 0, iterations = 150):
         self.reset_adam()
         for i in range(iterations):
