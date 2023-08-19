@@ -13,7 +13,7 @@ class linear_regression:
         reg_matrix = np.identity(features_bias.shape[1])
         #We need to make sure to not regularize the bias weight, which is done by setting its entry to 0
         reg_matrix[features_bias.shape[1] - 1, features_bias.shape[1] - 1] = 0
-        self.theta = np.linalg.inv(features_bias.T @ features_bias + self._lambda * reg_matrix) @ features_bias.T @labels
+        self.theta = np.linalg.pinv(features_bias.T @ features_bias + self._lambda * reg_matrix) @ features_bias.T @labels
 
     def predict(self, features):
         features_bias = np.hstack((features, np.ones((features.shape[0], 1))))
@@ -47,8 +47,14 @@ class polynomial_regression(linear_regression):
 x = np.arange(9).reshape(3,3)
 print(x)
 y = np.arange(3)
+y[2] = 19
 
-g = polynomial_regression(3, 1, degree=12, _lambda = 0)
+l = linear_regression(3, 1, 0)
+l.ridge_normal_eq(x, y)
+print(l.predict(x), y)
+
+g = polynomial_regression(3, 1, degree=3, _lambda = 3413414134)
 g.ridge_normal_eq(x, y)
+print(g.theta)
 print(g.predict(x), y)
 """
