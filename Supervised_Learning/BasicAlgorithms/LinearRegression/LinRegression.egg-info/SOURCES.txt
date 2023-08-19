@@ -1,6 +1,6 @@
 setup.py
-D:/Damian/PC/Python/ML/BasicAlgorithms/LinearRegression/LinRegr.py
-D:/Damian/PC/Python/ML/BasicAlgorithms/LinearRegression/__init__.py
+D:/Damian/PC/Python/ML/Supervised_Learning/BasicAlgorithms/LinearRegression/LinRegr.py
+D:/Damian/PC/Python/ML/Supervised_Learning/BasicAlgorithms/LinearRegression/__init__.py
 LinRegression.egg-info/PKG-INFO
 LinRegression.egg-info/SOURCES.txt
 LinRegression.egg-info/dependency_links.txt

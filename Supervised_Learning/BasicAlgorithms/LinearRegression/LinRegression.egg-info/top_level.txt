@@ -1,1 +1,1 @@
-D:\Damian\PC\Python\ML\BasicAlgorithms\LinearRegression
+D:\Damian\PC\Python\ML\Supervised_Learning\BasicAlgorithms\LinearRegression
