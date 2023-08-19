@@ -20,6 +20,8 @@ train_data = np.delete(train_data, 1, 1)
 
 data_unknown = pd.read_csv("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\DatensatzTraining_Va.csv")
 data_unknown = data.to_numpy()
+data_id = data_unknown[:, 0]
+data_unknown = np.delete(data_unknown, 0, 1)
 
 #Training the linear model with the optimal hyperparameters, visualizing
 print("Starting visualization linear:")
@@ -68,17 +70,17 @@ print("Starting saving linear:")
 lin_model = LinRegr.linear_regression(train_data.shape[1], _lambda = lin_opt[0])
 lin_model.ridge_normal_eq(train_data, labels)
 pred_linregr = lin_model.predict(data_unknown)
-np.savetxt("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\LinRegr.csv", pred_linregr, delimiter=",")
+np.savetxt("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\LinRegr.csv", np.vstack((data_id,  pred_linregr )), delimiter=",")
 
 print("Starting saving nn:")
 nn_model = NN.cont_feedforward_nn(train_data.shape[1], [nn_opt[0]], NN.ReLU, NN.ReLUDeriv, NN.output, NN.MSE_out_deriv, 1)
 nn_model.adam_iterated(train_data, labels, NN.MSE, dropout= [nn_opt[1]], batchsize = nn_opt[2], alpha = nn_opt[3], _lambda = nn_opt[4], iterations = 250)
 nn_model.forward_propagation(train_data, labels, NN.MSE)
 pred_nn = nn_model.output_layer(data_unknown)
-np.savetxt("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\NN.csv", pred_nn, delimiter=",")
+np.savetxt("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\NN.csv", np.vstack((data_id, pred_nn )), delimiter=",")
 
 print("Starting saving xgboost:")
 xgboost_model = xgboost.XGBRegressor(gamma = xgboost_opt[0], learning_rate = xgboost_opt[1], max_depth = xgboost_opt[2], n_estimators = xgboost_opt[3], n_jobs = 16, objective = 'reg:squarederror', subsample = xgboost_opt[4], scale_pos_weight = 0, reg_alpha = xgboost_opt[6], reg_lambda = xgboost_opt[7], min_child_weight = xgboost_opt[5])
 xgboost_model.fit(train_data, labels)
 pred_xgboost = xgboost_model.predict(data_unknown)
-np.savetxt("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\XGBoost.csv", pred_xgboost, delimiter=",")
+np.savetxt("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\XGBoost.csv", np.vstack((data_id, pred_xgboost )), delimiter=",")

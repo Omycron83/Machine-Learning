@@ -23,8 +23,8 @@ from skopt.space import Real, Integer
 data = pd.read_csv("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\DatensatzTraining_Va.csv")
 data["BETA_HT_Q_DEB"] = data["BETA_HT_Q_DEB"].fillna(data["BETA_HT_Q_DEB"].mean())
 labels = data["EIGENFREQ_ALT_STUFE_5"].to_numpy()
-labels = labels.reshape((labels.shape[0], 1))
-train_data = data.to_numpy()
+labels = labels.reshape((labels.shape[0], 1)).astype('float64')
+train_data = data.to_numpy().astype('float64')
 train_data = np.delete(train_data, 1, 1)
 
 #Implementing k-fold-cv in order to efficiently perform hyperparameter search on the limited data available 
@@ -63,24 +63,24 @@ def k_fold_cross_val(k, features, labels, train_func, cost_func):
 #This is done for all models by keeping the parameters as well as the other functions variable
 #The parameters are represented as tuples, which are then unpacked in the function call (with "*")
 
-#For the linear regression (with L2-Penalization):
-#params[0] = lambda
+#For the polynomial regression (with L2-Penalization):
+#params[0] = degree, params[1] = lambda
 n = 0
 def model_eval_linear(params):
     global n
     n += 1
     if n % 100 == 0:
         print("Iteration:", n)
-    lin_model = LinRegr.linear_regression(train_data.shape[1], _lambda = params[0])
+    lin_model = LinRegr.polynomial_regression(train_data.shape[1], degree = params[0], _lambda = params[1])
     return k_fold_cross_val(20, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE)
-lin_opt = gp_minimize(model_eval_linear, [Real(0, 5)], n_calls = 1200)
+lin_opt = gp_minimize(model_eval_linear, [Integer(1, 10), Real(0, 20)], n_calls = 1200)
 #Printing out the top results
 print("Linear results:", "Optimum:", lin_opt.fun,"With values", lin_opt.x)
 file_linregr = open("LinRegr.txt", "a")
 file_linregr.write(str(lin_opt.fun) + " " + str(lin_opt.x))
 file_linregr.close()
 #Regressing on 70% of the data and then plotting the output variables on the test set vs real values
-lin_model = LinRegr.linear_regression(train_data.shape[1], _lambda = lin_opt.x)
+lin_model = LinRegr.polynomial_regressionression(train_data.shape[1], _lambda = lin_opt.x[1], degree = lin_opt.x[0])
 lin_model.ridge_normal_eq(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)])
 figure, axis = plt.subplots(3, 1)
 axis[0].scatter(labels[int(train_data.shape[0] * 0.7):], lin_model.predict(train_data[int(train_data.shape[0] * 0.7):]))
