@@ -460,8 +460,11 @@ class cont_feedforward_nn(neural_network):
         return np.sum(np.all(np.equal(y_hat, y), axis=1))/y_hat.shape[0]
 
     def output_layer(self):
-        return self.layers_for[-1].z    
+        return self.layers_for[-1].z
 
+    def predict(self, features):
+        self.forward_propagation(self, features, np.zeros((features.shape[0], self.len_output)), lambda a, b : 0, dropout = [])    
+        return self.output_layer
 class autoencoder(cont_feedforward_nn):
     def __init__(self, input_size, nodes, non_linear, non_linear_derivative, encoding_layer):
         self.input_size = input_size
