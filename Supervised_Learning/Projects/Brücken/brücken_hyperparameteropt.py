@@ -73,7 +73,7 @@ def model_eval_linear(params):
         print("Iteration:", n)
     lin_model = LinRegr.polynomial_regression(train_data.shape[1], degree = params[0], _lambda = params[1])
     return k_fold_cross_val(20, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE)
-lin_opt = gp_minimize(model_eval_linear, [Integer(1, 10), Real(0, 20)], n_calls = 1200)
+lin_opt = gp_minimize(model_eval_linear, [Integer(1, 10), Real(0, 20)], n_calls = 2400)
 #Printing out the top results
 print("Linear results:", "Optimum:", lin_opt.fun,"With values", lin_opt.x)
 file_linregr = open("LinRegr.txt", "a")

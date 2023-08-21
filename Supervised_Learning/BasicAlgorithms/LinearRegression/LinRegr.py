@@ -20,10 +20,11 @@ class linear_regression:
         return features_bias @ self.theta
     
     def MSE(self, features, labels):
-        features_bias = np.hstack((features, np.ones((features.shape[0], 1))))
-        pred = (features_bias @ self.theta).reshape(features_bias.shape[0], self.theta.shape[1])
-        return np.sum((np.array(pred) - np.array(labels).reshape(pred.shape))**2) / (2 * np.array(pred).size)
+        return np.sum((self.predict(features) - labels)**2) / (2 * np.array(labels).size)
     
+#In polynomial regression, it is usually good to normalize the data
+#In this case, we will save the mean and std used to normalize for training
+#And then apply it when predicting
 class polynomial_regression(linear_regression):
     def __init__(self, dim, dim_2=1, _lambda=0, degree = 1) -> None:
         self.degree = degree
@@ -33,16 +34,27 @@ class polynomial_regression(linear_regression):
         return np.hstack(features ** np.arange(1, self.degree + 1)[:, None, None])
     
     def normal_eq(self, features, labels):
+        self.mean = np.mean(features, axis = 0)
+        self.std = np.std(features, axis = 0)
+        features = (features - self.mean) / self.std
+
         return super().normal_eq(self.polynomialize(features), labels)
     
     def ridge_normal_eq(self, features, labels):
+        self.mean = np.mean(features, axis = 0)
+        self.std = np.std(features, axis = 0)
+        features = (features - self.mean) / self.std
         return super().ridge_normal_eq(self.polynomialize(features), labels)
     
     def MSE(self, features, labels):
-        return super().MSE(self.polynomialize(features), labels)
+        return np.sum((self.predict(features) - labels)**2) / (2 * np.array(labels).size)
+
 
     def predict(self, features):
+        features = (features - self.mean) / self.std
         return super().predict(self.polynomialize(features))
+
+#Trying some stuff out:
 """
 x = np.arange(9).reshape(3,3)
 print(x)
