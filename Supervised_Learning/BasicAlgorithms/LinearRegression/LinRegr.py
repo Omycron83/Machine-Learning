@@ -20,7 +20,7 @@ class linear_regression:
         return features_bias @ self.theta
     
     def MSE(self, features, labels):
-        return np.sum((self.predict(features) - labels)**2) / (2 * np.array(labels).size)
+        return np.sum(np.square(self.predict(features) - labels)) / (2 * np.array(labels).size)
     
 #In polynomial regression, it is usually good to normalize the data
 #In this case, we will save the mean and std used to normalize for training
@@ -47,8 +47,7 @@ class polynomial_regression(linear_regression):
         return super().ridge_normal_eq(self.polynomialize(features), labels)
     
     def MSE(self, features, labels):
-        return np.sum((self.predict(features) - labels)**2) / (2 * np.array(labels).size)
-
+        return np.sum(np.square(self.predict(features) - labels)) / (2 * np.array(labels).size)
 
     def predict(self, features):
         features = (features - self.mean) / self.std

@@ -23,8 +23,8 @@ from skopt.space import Real, Integer
 data = pd.read_csv("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\DatensatzTraining_Va.csv")
 data["BETA_HT_Q_DEB"] = data["BETA_HT_Q_DEB"].fillna(data["BETA_HT_Q_DEB"].mean())
 labels = data["EIGENFREQ_ALT_STUFE_5"].to_numpy()
-labels = labels.reshape((labels.shape[0], 1)).astype('float64')
-train_data = data.to_numpy().astype('float64')
+labels = labels.reshape((labels.shape[0], 1))
+train_data = data.to_numpy()
 train_data = np.delete(train_data, 1, 1)
 
 #Implementing k-fold-cv in order to efficiently perform hyperparameter search on the limited data available 
