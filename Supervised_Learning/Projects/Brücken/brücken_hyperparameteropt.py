@@ -29,8 +29,9 @@ train_data = np.delete(train_data, 1, 1)
 
 #Implementing k-fold-cv in order to efficiently perform hyperparameter search on the limited data available 
 global n
-def k_fold_cross_val(k, features, labels, train_func, cost_func):
+def k_fold_cross_val(k, features, labels, train_func, cost_func, seed):
     #Shuffling
+    np.random.seed(seed)
     p = np.random.permutation(features.shape[0])
     shuffled_features = features.copy()[p]
     shuffled_labels = labels.copy()[p]
@@ -72,7 +73,10 @@ def model_eval_linear(params):
     if n % 100 == 0:
         print("Iteration:", n)
     lin_model = LinRegr.polynomial_regression(train_data.shape[1], degree = params[0], _lambda = params[1])
-    return k_fold_cross_val(20, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE)
+    avg = 0
+    for i in range(3):
+        avg += k_fold_cross_val(10, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE, seed = i) / 3
+    return avg
 lin_opt = gp_minimize(model_eval_linear, [Integer(1, 10), Real(0, 20)], n_calls = 2400)
 #Printing out the top results
 print("Linear results:", "Optimum:", lin_opt.fun,"With values", lin_opt.x)
@@ -104,11 +108,15 @@ def model_eval_nn(params):
     untrained_weights = nn.retrieve_weights()
     def train(features, labels):
         nn.assign_weights(untrained_weights)
-        nn.adam_iterated(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4])
+        nn.early_stopping_adam_iterated(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4], iterations = 300)
+        nn.adam_iterated()
     def cost(features, labels):
         return nn.forward_propagation(features, labels, NN.MSE)
-    
-    return k_fold_cross_val(20, train_data, labels, train, cost)
+    avg = 0
+    for i in range(3):
+        avg += k_fold_cross_val(10, train_data, labels, train, cost, seed = i) / 3
+    return avg
+
 nn_opt = gp_minimize(model_eval_nn, [Integer(1, 1024), Real(0, 0.9999), Integer(8, 128), Real(0.00001, 0.001), Real(0, 5)], n_calls = 1200)
 print("NN results:", "Optimum:", nn_opt.fun,"With values", nn_opt.x)
 file_NN = open("NN.txt", "a")
@@ -142,7 +150,11 @@ def model_eval_xgboost(params):
     def cost(features, labels):
         pred = xgboost_reg.predict(features).reshape(labels.shape[0], 1)
         return NN.MSE(pred, labels)
-    return k_fold_cross_val(20, train_data, labels, train, cost)
+    avg = 0
+    for i in range(3):
+        avg += k_fold_cross_val(10, train_data, labels, train, cost, seed = i) / 3
+    return avg
+
 xgboost_opt = gp_minimize(model_eval_xgboost, [Real(0, 20), Real(0.01, 0.5), Integer(3, 10), Integer(100, 1100), Real(0.5, 1), Integer(1, 10), Real(0, 5), Real(0, 5)], n_calls = 1200)
 print("XGBoost results:", "Optimum:", xgboost_opt.fun,"With values", xgboost_opt.x)
 file_xgboost = open("xgboost.txt", "a")
