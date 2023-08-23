@@ -1,6 +1,5 @@
 #implementing a standard NN in a "nice", object oriented way to kinda learn that or smth
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 import numpy as np
 import pickle
 import matplotlib.pyplot as plt
@@ -466,31 +465,32 @@ class cont_feedforward_nn(neural_network):
         self.forward_propagation(self, features, np.zeros((features.shape[0], self.len_output)), lambda a, b : 0, dropout = [])    
         return self.output_layer
     
-    def early_stopping_adam_iterated(self, inputs, pred, error, dropout = [], batchsize = 32, beta_1 = 0.9, beta_2 = 0.999, epsilon = 1e-8, alpha = 0.001, _lambda = 0, iterations = 150, val_perc = 0.1):
+    def early_stopping_adam_iterated(self, inputs, pred, error, dropout = [], batchsize = 32, beta_1 = 0.9, beta_2 = 0.999, epsilon = 1e-8, alpha = 0.001, _lambda = 0, iterations = 150, val_perc = 0.1, seed = 0):
+        np.random.seed(0)
         p = np.random.permutation(inputs.shape[0])
         features, labels = inputs[p], pred[p]
-        val_features, val_labels = features[:, :int(inputs.shape[0] * val_perc)], labels[:, :int(inputs.shape[0] * val_perc)]
-        train_features, train_labels = features[:, int(inputs.shape[0] * val_perc):], labels[:, int(inputs.shape[0] * val_perc):]
+        val_features, val_labels = features[:int(inputs.shape[0] * val_perc), :], labels[:int(inputs.shape[0] * val_perc), :]
+        train_features, train_labels = features[int(inputs.shape[0] * val_perc):, :], labels[int(inputs.shape[0] * val_perc):, :]
         #Uses early stopping when the generalization error increases for s consecutive strips
         best_weights, best_score = self.retrieve_weights(), 100000000
         memory = [] #Queue for our cross validation score: 
         for i in range(iterations):
-            loss = self.adam(inputs, pred, error, dropout, batchsize, beta_1, beta_2, epsilon, alpha, _lambda)
+            loss = self.adam(train_features, train_labels, error, dropout, batchsize, beta_1, beta_2, epsilon, alpha, _lambda)
             #Saving the best weights
             val_score = self.forward_propagation(val_features, val_labels, error)
             if val_score < best_score:
                 best_weights, best_score = self.retrieve_weights(), val_score
             #We are using UP3 from https://page.mi.fu-berlin.de/prechelt/Biblio/stop_tricks1997.pdf, and start this process after a "warm-up" of 100 iterations
             #A 'training strip' of length k is a sequence of k epochs n + 1, ..., n + k where n is divisible by k, and we measure after each strip
-            #We set k = 5 epochs, and stop after three strips if, between each strip, the value always increased: UP_3 == True if (UP_2 and E_va(t) > E_va(t - k)), UP_2 == True if (UP_1 and E_va(t - k) > E_va(t - 2k)), UP_1 == True if E_va(t - 2k) > E_va(t - 3k)
+            #We set k = 3 epochs, and stop after three strips if, between each strip, the value always increased: UP_3 == True if (UP_2 and E_va(t) > E_va(t - k)), UP_2 == True if (UP_1 and E_va(t - k) > E_va(t - 2k)), UP_1 == True if E_va(t - 2k) > E_va(t - 3k)
             
-            #Adding the strip values to the queue 
-            if i % 5 == 0:
-                memory.insert(val_score, 0)
+            #Adding the strip values to the queue   
+            if i % 3 == 0:
+                memory.insert(0, val_score)
                 if len(memory) > 4:
                     memory.pop()
                     #Checking if UP_3 == True (one could have done this way better, but idc)
-                    if i > 100:
+                    if i > 50:
                         up_1 = (memory[3] < memory[2])
                         up_2 = (memory[2] < memory[1]) and up_1
                         up_3 = (memory[1] < memory[0]) and up_2
