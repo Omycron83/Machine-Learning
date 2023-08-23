@@ -77,7 +77,7 @@ def model_eval_linear(params):
     for i in range(3):
         avg += k_fold_cross_val(10, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE, seed = i) / 3
     return avg
-lin_opt = gp_minimize(model_eval_linear, [Integer(1, 10), Real(0, 20)], n_calls = 2400)
+lin_opt = gp_minimize(model_eval_linear, [Integer(1, 10), Real(0, 20)], n_calls = 1200)
 #Printing out the top results
 print("Linear results:", "Optimum:", lin_opt.fun,"With values", lin_opt.x)
 file_linregr = open("LinRegr.txt", "a")
@@ -109,7 +109,6 @@ def model_eval_nn(params):
     def train(features, labels):
         nn.assign_weights(untrained_weights)
         nn.early_stopping_adam_iterated(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4], iterations = 300)
-        nn.adam_iterated()
     def cost(features, labels):
         return nn.forward_propagation(features, labels, NN.MSE)
     avg = 0
@@ -117,7 +116,7 @@ def model_eval_nn(params):
         avg += k_fold_cross_val(10, train_data, labels, train, cost, seed = i) / 3
     return avg
 
-nn_opt = gp_minimize(model_eval_nn, [Integer(1, 1024), Real(0, 0.9999), Integer(8, 128), Real(0.00001, 0.001), Real(0, 5)], n_calls = 1200)
+nn_opt = gp_minimize(model_eval_nn, [Integer(1, 2048), Real(0, 0.9999), Integer(8, 128), Real(0.0001, 0.01), Real(0, 20)], n_calls = 1200)
 print("NN results:", "Optimum:", nn_opt.fun,"With values", nn_opt.x)
 file_NN = open("NN.txt", "a")
 file_NN.write(str(nn_opt.fun) + " " + str(nn_opt.x))
