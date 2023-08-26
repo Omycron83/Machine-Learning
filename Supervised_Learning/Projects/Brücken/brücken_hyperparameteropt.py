@@ -77,14 +77,14 @@ def model_eval_linear(params):
     for i in range(3):
         avg += k_fold_cross_val(10, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE, seed = i) / 3
     return avg
-lin_opt = gp_minimize(model_eval_linear, [Integer(1, 10), Real(0, 20)], n_calls = 1200)
+lin_opt = gp_minimize(model_eval_linear, [Integer(1, 20), Real(0, 40)], n_calls = 1200)
 #Printing out the top results
 print("Linear results:", "Optimum:", lin_opt.fun,"With values", lin_opt.x)
 file_linregr = open("LinRegr.txt", "a")
 file_linregr.write(str(lin_opt.fun) + " " + str(lin_opt.x))
 file_linregr.close()
 #Regressing on 70% of the data and then plotting the output variables on the test set vs real values
-lin_model = LinRegr.polynomial_regressionression(train_data.shape[1], _lambda = lin_opt.x[1], degree = lin_opt.x[0])
+lin_model = LinRegr.polynomial_regression(train_data.shape[1], _lambda = lin_opt.x[1], degree = lin_opt.x[0])
 lin_model.ridge_normal_eq(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)])
 figure, axis = plt.subplots(3, 1)
 axis[0].scatter(labels[int(train_data.shape[0] * 0.7):], lin_model.predict(train_data[int(train_data.shape[0] * 0.7):]))
