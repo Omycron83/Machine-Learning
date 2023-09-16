@@ -1,7 +1,7 @@
 #Final model parameters were:
-lin_opt = [1, 1.2776441026927368]#1.2776441026927368
-nn_opt = [512, 0.0 , 32, 0.000001015370459087969, 0] #555, 0.5119633527495826, 47, 0.0005015370459087969, 5
-xgboost_opt = [1.2373453011910522, 0.01, 6, 1096, 0.8544992034696949, 1, 0.8009271586748941, 1.4147922102986796]
+lin_opt = [1, 0.0]
+nn_opt = [1536, 0.49182631229299933, 29, 0.004818262252177378, 8.101217041990502]
+xgboost_opt = [1.0444256306616824, 0.29577922385334104, 8, 262, 0.946595594034978, 9, 1.0313031491826061, 2.6694032731237383]
 
 import xgboost
 import NN
@@ -11,12 +11,14 @@ import LinRegr
 import pandas as pd
 import numpy as np
 
-data = pd.read_csv("Supervised_Learning\Projects\Brücken\DatensatzTraining_Va.csv")
+#Loading in the data and preparing it
+data = pd.read_csv("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\DatensatzTraining_Ve.csv")
+data = data.drop(['ID_AUFTRAG_ZPM'], axis = 1)
 data["BETA_HT_Q_DEB"] = data["BETA_HT_Q_DEB"].fillna(data["BETA_HT_Q_DEB"].mean())
 labels = data["EIGENFREQ_ALT_STUFE_5"].to_numpy()
 labels = labels.reshape((labels.shape[0], 1))
+data = data.drop(["EIGENFREQ_ALT_STUFE_5"], axis = 1)
 train_data = data.to_numpy()
-train_data = np.delete(train_data, 1, 1)
 
 #Getting the final models score:
 def k_fold_cross_val(k, features, labels, train_func, cost_func, seed):
@@ -110,7 +112,7 @@ axis[0].add_line(line)
 #Training the nn_model, visualizing
 print("Starting visualization nn:")
 nn_model = NN.cont_feedforward_nn(train_data.shape[1], [nn_opt[0]], NN.ReLU, NN.ReLUDeriv, NN.output, NN.MSE_out_deriv, 1)
-nn_model.adam_iterated(train_data[:int(train_data.shape[0] * 0.8)], labels[:int(train_data.shape[0] * 0.8)], NN.MSE, dropout= [nn_opt[1]], batchsize = nn_opt[2], alpha = nn_opt[3], _lambda = nn_opt[4], iterations = 750)
+nn_model.early_stopping_adam_iterated(train_data[:int(train_data.shape[0] * 0.8)], labels[:int(train_data.shape[0] * 0.8)], NN.MSE, dropout= [nn_opt[1]], batchsize = nn_opt[2], alpha = nn_opt[3], _lambda = nn_opt[4], iterations = 750)
 print(nn_model.forward_propagation(train_data[int(train_data.shape[0] * 0.8):], labels[int(train_data.shape[0] * 0.8):], NN.MSE))
 axis[1].scatter(labels[int(train_data.shape[0] * 0.8):], nn_model.output_layer())
 axis[1].set_title("NN")
