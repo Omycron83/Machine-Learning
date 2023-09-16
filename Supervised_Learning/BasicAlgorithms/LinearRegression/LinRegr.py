@@ -41,17 +41,20 @@ class polynomial_regression(linear_regression):
         return super().normal_eq(self.polynomialize(features), labels)
     
     def ridge_normal_eq(self, features, labels):
+        features = self.polynomialize(features)
         self.mean = np.mean(features, axis = 0)
         self.std = np.std(features, axis = 0)
+        self.std[self.std == 0] = 0.001
         features = (features - self.mean) / self.std
-        return super().ridge_normal_eq(self.polynomialize(features), labels)
+        return super().ridge_normal_eq(features, labels)
     
     def MSE(self, features, labels):
         return np.sum(np.square(self.predict(features) - labels)) / (2 * np.array(labels).size)
 
     def predict(self, features):
+        features = self.polynomialize(features)
         features = (features - self.mean) / self.std
-        return super().predict(self.polynomialize(features))
+        return super().predict(features)
 
 #Trying some stuff out:
 """

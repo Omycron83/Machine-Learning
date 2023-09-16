@@ -219,9 +219,10 @@ class modular_NN(neural_network):
     def regularization(self, theta):
         return np.vstack((np.zeros((1, theta.shape[1])), theta[1:, :]))
     
+    #NOT WORKING AS INTENDED YET (need to enable deep copies)
     def retrieve_weights(self):
         return self.layers.copy()
-
+    #NOT WORKING AS INTENDED YET (need to enable deep copies)
     def assign_weights(self, new_layers):
         self.layers = new_layers.copy()
 
@@ -266,6 +267,10 @@ class cont_feedforward_nn(neural_network):
             self.theta = np.random.rand(input_size, output_size)
             e = np.sqrt(2) / np.sqrt(self.theta.shape[0])
             self.theta = self.theta * 2 * e - e
+        def copy(self):
+            l = __class__(self.theta.shape[0], self.theta.shape[1])
+            l.theta = self.theta.copy()
+            return l
     class layer:
         @numba.jit(forceobj = True)
         def __init__(self, weights, prevLayer, non_linear):
@@ -417,15 +422,16 @@ class cont_feedforward_nn(neural_network):
         #Hk+1 = Hk + (sk.T@yk + yk.T @ Hk@yk)*(sk@sk.T)/(sk.T@yk)^2 - (Hk@yk@sk.T + sk@yk.T@Hk)/(sk.T @ yk) 
         return 0
 
-    def early_stopping(self, cross_val):
-        self.last_error = 1000000000
-        self.cross_val = cross_val
-
     def retrieve_weights(self):
-        return self.weights.copy()
+        weight_list = []
+        for i in self.weights:
+            weight_list.append(i.copy())
+        return weight_list
 
     def assign_weights(self, new_weights):
-        self.weights = new_weights.copy()
+        self.weights = []
+        for i in new_weights:
+            self.weights.append(i)
 
     def load_weights(self, path):
         with open(str(path), "rb") as weights:
@@ -459,13 +465,15 @@ class cont_feedforward_nn(neural_network):
         return np.sum(np.all(np.equal(y_hat, y), axis=1))/y_hat.shape[0]
 
     def output_layer(self):
-        return self.layers_for[-1].z
-
+        return self.layers_for[-1].z.copy()
+    
     def predict(self, features):
         self.forward_propagation(self, features, np.zeros((features.shape[0], self.len_output)), lambda a, b : 0, dropout = [])    
-        return self.output_layer
+        return self.output_layer()
     
+    @numba.jit(forceobj = True)
     def early_stopping_adam_iterated(self, inputs, pred, error, dropout = [], batchsize = 32, beta_1 = 0.9, beta_2 = 0.999, epsilon = 1e-8, alpha = 0.001, _lambda = 0, iterations = 150, val_perc = 0.1, seed = 0):
+        self.reset_adam()
         np.random.seed(0)
         p = np.random.permutation(inputs.shape[0])
         features, labels = inputs[p], pred[p]
