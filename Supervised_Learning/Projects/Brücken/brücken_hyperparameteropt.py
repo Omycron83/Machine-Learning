@@ -17,6 +17,8 @@ import pandas as pd
 import numpy as np
 from skopt import gp_minimize
 from skopt.space import Real, Integer
+from datetime import datetime
+now = datetime.now()
 
 #Loading in the data and preparing it
 data = pd.read_csv("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\DatensatzTraining_Ve.csv")
@@ -74,15 +76,17 @@ def model_eval_linear(params):
         print("Iteration:", n)
     lin_model = LinRegr.polynomial_regression(train_data.shape[1], degree = params[0], _lambda = params[1])
     avg = 0
+    def cost(features, labels):
+        return NN.mape(labels, lin_model.predict(features))
     for i in range(3):
-        avg += k_fold_cross_val(10, train_data, labels, lin_model.ridge_normal_eq, lin_model.MSE, seed = i) / 3
+        avg += k_fold_cross_val(10, train_data, labels, lin_model.ridge_normal_eq, cost, seed = i) / 3
     return avg
 
 lin_opt = gp_minimize(model_eval_linear, [Integer(1, 20), Real(0, 40)], n_calls = 20)
 #Printing out the top results
 print("Linear results:", "Optimum:", lin_opt.fun,"With values", lin_opt.x)
 file_linregr = open(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\LinRegr.txt", "a")
-file_linregr.write(str(lin_opt.fun) + " " + str(lin_opt.x))
+file_linregr.write("\n" + str(now) + ":" + str(lin_opt.fun) + " " + str(lin_opt.x) + " ")
 file_linregr.close()
 #Regressing on 70% of the data and then plotting the output variables on the test set vs real values
 lin_model = LinRegr.polynomial_regression(train_data.shape[1], _lambda = lin_opt.x[1], degree = lin_opt.x[0])
@@ -109,9 +113,10 @@ def model_eval_nn(params):
     untrained_weights = nn.retrieve_weights()
     def train(features, labels):
         nn.assign_weights(untrained_weights)
-        nn.early_stopping_adam_iterated(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4], iterations = 300)
+        nn.adam_iterated(features, labels, NN.MSE, dropout= [params[1]], batchsize = params[2], alpha = params[3], _lambda = params[4], iterations = 300)
     def cost(features, labels):
-        return nn.forward_propagation(features, labels, NN.MSE)
+        nn.forward_propagation(features, labels, NN.MSE)
+        return NN.mape(labels, nn.output_layer())
     avg = 0
     for i in range(3):
         avg += k_fold_cross_val(10, train_data, labels, train, cost, seed = i) / 3
@@ -120,11 +125,11 @@ def model_eval_nn(params):
 nn_opt = gp_minimize(model_eval_nn, [Integer(1, 2048), Real(0, 0.9999), Integer(8, 128), Real(0.0001, 0.01), Real(0, 20)], n_calls = 20)
 print("NN results:", "Optimum:", nn_opt.fun,"With values", nn_opt.x)
 file_NN = open(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\NN.txt", "a")
-file_NN.write(str(nn_opt.fun) + " " + str(nn_opt.x))
+file_NN.write("\n" + str(now) + ":" + str(nn_opt.fun) + " " + str(nn_opt.x) + " ")
 file_NN.close()
 nn_model = NN.cont_feedforward_nn(train_data.shape[1], [nn_opt.x[0]], NN.ReLU, NN.ReLUDeriv, NN.output, NN.MSE_out_deriv, 1)
 
-l = nn_model.early_stopping_adam_iterated(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)], NN.MSE, dropout= [nn_opt.x[1]], batchsize = nn_opt.x[2], alpha = nn_opt.x[3], _lambda = nn_opt.x[4])
+l = nn_model.adam_iterated(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)], NN.MSE, dropout= [nn_opt.x[1]], batchsize = nn_opt.x[2], alpha = nn_opt.x[3], _lambda = nn_opt.x[4])
 nn_model.forward_propagation(train_data[int(train_data.shape[0] * 0.7):], labels[int(train_data.shape[0] * 0.7):], NN.MSE)
 axis[1].scatter(labels[int(train_data.shape[0] * 0.7):], nn_model.output_layer())
 axis[1].set_title("NN")
@@ -142,12 +147,12 @@ def model_eval_xgboost(params):
     n += 1
     if n % 100 == 0:
         print("Iteration:", n)
-    xgboost_reg = xgboost.XGBRegressor(gamma = params[0], learning_rate = params[1], max_depth = params[2], n_estimators = params[3], n_jobs = 16, objective = 'reg:squarederror', subsample = params[4], scale_pos_weight = 0, reg_alpha = params[6], reg_lambda = params[7], min_child_weight = params[5])
+    xgboost_reg = xgboost.XGBRegressor(gamma = params[0], learning_rate = params[1], max_depth = params[2], n_estimators = params[3], n_jobs = 16, objective = 'reg:mape', subsample = params[4], scale_pos_weight = 0, reg_alpha = params[6], reg_lambda = params[7], min_child_weight = params[5])
     def train(features, labels):
         xgboost_reg.fit(features, labels)
     def cost(features, labels):
         pred = xgboost_reg.predict(features).reshape(labels.shape[0], 1)
-        return NN.MSE(pred, labels)
+        return NN.mape(labels, pred)
     avg = 0
     for i in range(3):
         avg += k_fold_cross_val(10, train_data, labels, train, cost, seed = i) / 3
@@ -156,9 +161,9 @@ def model_eval_xgboost(params):
 xgboost_opt = gp_minimize(model_eval_xgboost, [Real(0, 20), Real(0.01, 0.5), Integer(3, 10), Integer(100, 1100), Real(0.5, 1), Integer(1, 10), Real(0, 5), Real(0, 5)], n_calls = 20)
 print("XGBoost results:", "Optimum:", xgboost_opt.fun,"With values", xgboost_opt.x)
 file_xgboost = open(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\XGBoost.txt", "a")
-file_xgboost.write(str(xgboost_opt.fun) + " " + str(xgboost_opt.x))
+file_xgboost.write("\n" + str(now) + ":" + str(xgboost_opt.fun) + " " + str(xgboost_opt.x) + " ")
 file_xgboost.close()
-xgboost_model = xgboost.XGBRegressor(gamma = xgboost_opt.x[0], learning_rate = xgboost_opt.x[1], max_depth = xgboost_opt.x[2], n_estimators = xgboost_opt.x[3], n_jobs = 16, objective = 'reg:squarederror', subsample = xgboost_opt.x[4], scale_pos_weight = 0, reg_alpha = xgboost_opt.x[6], reg_lambda = xgboost_opt.x[7], min_child_weight = xgboost_opt.x[5])
+xgboost_model = xgboost.XGBRegressor(gamma = xgboost_opt.x[0], learning_rate = xgboost_opt.x[1], max_depth = xgboost_opt.x[2], n_estimators = xgboost_opt.x[3], n_jobs = 16, objective = 'reg:mape', subsample = xgboost_opt.x[4], scale_pos_weight = 0, reg_alpha = xgboost_opt.x[6], reg_lambda = xgboost_opt.x[7], min_child_weight = xgboost_opt.x[5])
 xgboost_model.fit(train_data[:int(train_data.shape[0] * 0.7)], labels[:int(train_data.shape[0] * 0.7)])
 axis[2].scatter(labels[int(train_data.shape[0] * 0.7):], xgboost_model.predict(train_data[int(train_data.shape[0] * 0.7):]))
 axis[2].set_title("XGBoost")
