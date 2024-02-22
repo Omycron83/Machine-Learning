@@ -13,7 +13,7 @@ test_Y[np.arange(test_y.size), test_y] = 1
 neural_net_adam = NN.cont_feedforward_nn(784, [200, 200], NN.ReLU, NN.ReLUDeriv, NN.sigmoid, NN.Sigmoid_out_deriv, train_y.max() + 1)
 neural_net_sgd = NN.cont_feedforward_nn(784, [200, 200], NN.ReLU, NN.ReLUDeriv, NN.sigmoid, NN.Sigmoid_out_deriv, train_y.max() + 1)
 
-for i in range(1):
+for i in range(5):
     print(neural_net_adam.adam(train_X, train_Y, NN.logistic_cost))
     #print(neural_net_sgd.stochastic_gradient_descent(0.001, 0, train_X, train_Y, NN.logistic_cost))
 neural_net_adam.forward_propagation(train_X, train_Y, NN.logistic_cost)
