@@ -1,0 +1,4 @@
+
+class CalQL:
+    def __init__(self) -> None:
+        pass
