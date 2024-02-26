@@ -3,7 +3,6 @@
 #Content: A modular implementation of the default transformer architecture 
 #using the Pytorch - Dynamic Computational Graph for Per-Sequence-Training and Prediction
 
-
 import torch
 import torch.nn as nn
 from typing import Type
@@ -24,13 +23,17 @@ def layerNorm(x):
     return (x - std_mean[1]) / (std_mean[0] + 0.0001)
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, h, d_model, is_encoder):
+    def __init__(self, h, d_model):
         super.__init__()
-        self.is_encoder = is_encoder
         self.h = h
         self.d_k = d_model // h #Can be chosen otherwise
         #Output matrix processing the concatenated attention heads
         self.WO = nn.parameter(torch.rand(self.d_k * h, d_model))
+
+        #Learnt, general parameters to yield Q, K and V from an Input for all Attention Heads combined
+        self.WQ_Comb = nn.parameter(torch.rand(d_model, d_model))
+        self.WK_Comb = nn.parameter(torch.rand(d_model, d_model))
+        self.WV_Comb = nn.parameter(torch.rand(d_model, d_model))
 
         #List of weight matrices for each attention head
         self.WQ = [nn.parameter(torch.rand(d_model, self.d_k) for i in range(h))]
@@ -41,11 +44,9 @@ class MultiHeadAttention(nn.Module):
         softmax = nn.Softmax(dim = 0)
         return softmax((Q @ K)*(1 / math.sqrt(self.d_k))) @ V
 
-    def forward(self, X, Q = None, K = None, V = None):
-        if self.is_encoder:
-            Q, K, V = X, X, X
-        heads = [self.attention(Q @ self.WQ[i], K @ self.WK[i], V @ self.WV[i]) for i in range(self.h)]
-
+    def forward(self, XQ, XK, XV):
+        #Encoder has the same, decoder different inputs for the attention evaluation (from which Q, K, V are constructed)
+        heads = [self.attention(XQ @ self.WQ_comb @ self.WQ[i], XK @ self.WK_comb @ self.WK[i], XV @ self.WV_comb @ self.WV[i]) for i in range(self.h)]
         return torch.cat(heads, dim = 1) @ self.WO
 
 class MaskedMultiHeadAttention(MultiHeadAttention):
@@ -92,32 +93,46 @@ class EncoderLayer(nn.Module):
         self.dim_ann = dim_ann
         self.n_head = n_head
         self.d_model = d_model
-        self.attention = MultiHeadAttention(n_head, d_model, True)
+        self.attention = MultiHeadAttention(n_head, d_model)
         self.ann = ANNLayer(dim_ann, d_model)
 
-    #We are assuming a pre-LN-Architecture
+    #We are assuming a post-LN-Architecture
     def forward(self, x):
-        norm_input = layerNorm(x)
-        attended_val = self.attention(norm_input)
+        attended_val = self.attention(x, x, x)
         attended_res = attended_val + x
-
         attended_norm = layerNorm(attended_res)
+
         ann_val = self.ann(attended_norm)
-        ann_res = ann_val + attended_res
-        return ann_res
+        ann_res = ann_val + attended_norm
+        ann_norm = layerNorm(ann_res)
+        return ann_norm
 
 class DecoderLayer(nn.Module):
-    def __init__(self, dim_ann, n_head, d_model):
+    def __init__(self, dim_ann, n_head, d_model, has_encoder):
         super.__init__()
         self.dim_ann = dim_ann
         self.n_head = n_head
         self.d_model = d_model
-        self.attention = MultiHeadAttention(n_head, d_model, True)
+        self.has_encoder = has_encoder
+        self.attention = MultiHeadAttention(n_head, d_model)
+        if has_encoder:
+            self.enc_attention = MultiHeadAttention(n_head, d_model)
         self.ann = ANNLayer(dim_ann, d_model)
 
     def forward(self, x, enc_val = None):
-        norm_input = 
-        if enc_val = 
+        attended_val = self.attention(x)
+        attended_res = attended_val + x
+        attended_norm = layerNorm(attended_res)
+        
+        if self.has_encoder:
+            attended_val_enc = self.attention(enc_val, enc_val, attended_norm)
+            attended_res_enc = attended_val_enc + attended_norm
+            attended_norm = layerNorm(attended_res_enc)
+         
+        ann_val = self.ann(attended_norm)
+        ann_res = ann_val + attended_norm
+        ann_norm = layerNorm(ann_res)
+        return ann_norm
 
 class OutputLayer(nn.Module, ABC):
     @ABC.abstractmethod
@@ -149,7 +164,7 @@ class Transformer(nn.Module):
         if enc_layers > 0:
             self.encoder = [EncoderLayer(dim_ann, n_head, d_model) for i in range(enc_layers)]
         if dec_layers > 0:
-            self.decoder = [DecoderLayer(dim_ann, n_head, d_model) for i in range(dec_layers)]
+            self.decoder = [DecoderLayer(dim_ann, n_head, d_model, enc_layers > 0) for i in range(dec_layers)]
         self.output_layer = output_layer
 
     def forward(self, X, Output):
@@ -171,6 +186,7 @@ class Transformer(nn.Module):
 
 
 
+#"------------------------------------------------ Optimization Algorithms ------------------------------------------------"
 
 #"-------------------------------- Unit-Tests ------------------------------------------------"
 def test_pos_encoding():
