@@ -1,7 +1,10 @@
+from typing import Type
 import transformer
 import torch
 from copy import deepcopy
+import random
 
+#A replay buffer 
 class ReplayBuffer:
     def __init__(self, max_length, gamma) -> None:
         self.max_length = max_length
@@ -10,9 +13,15 @@ class ReplayBuffer:
 
     #Randomly samples from trajectories according to relative size, and then from length-K subtrajectories from the chosen trajectory
     def retrieve(self, K):
-        pass
+        traj_lengths = [len(k) for k in self.content]
+        chosen_traj = random.choices(self.content, weights=traj_lengths)[0]
+        if len(chosen_traj) > K:
+            slice_index = random.randint(0, len(chosen_traj) - K)
+            return chosen_traj[slice_index:K + slice_index]
+        else:
+            return chosen_traj
     
-    def hindsight_return_labeling(self, traj):
+    def hindsight_return_labeling(self, traj_list):
         #Making a deep-copy as to mitigate external errors in reuse trajectories
         traj_list = deepcopy(traj_list)
         #Updating trajectory return-to-go as discounted sum in hindsight return labeling in monte-carlo fashion
@@ -35,19 +44,62 @@ class ReplayBuffer:
         
     def add_online(self, traj):
         self.content.append(self.hindsight_return_labeling(traj))
-        self.content.pop(0)
+        if len(self.content) > self.max_length:
+            self.content.pop(0)
+
+#Used in continuous action spaces
+class OutputDist(transformer.OutputLayer):
+    def forward(self, x):
+        return 
+
+#Used in discrete action spaces
 
 
+class ODTEmb(transformer.EmbeddingLayer):
+    def forward(self, x):
+        return 
+
+#High-level class implementing the ODT-algorithm using multiple other classes to enable rl training
 class ODT:
-    def __init__(self) -> None:
-        pass
-    
-    def pred(self, R, s, a, t):
-        pos_embedding = embed_t(t)
+    #As a GPT-Architecture is used, we 
+    def __init__(self, d_input: int, d_output: int, d_model: int, n_head: int, dim_ann: int, dec_layers: int, context_length: int, gamma: float, lr: float, env):
+        #Initializes the function approximator in this type of task
+        self.transformer = transformer.Transformer(d_input, d_output, d_model, n_head, dim_ann, ODTEmb, 0, dec_layers, OutputDist)
+
+        self.ReplayBuffer = ReplayBuffer(context_length, gamma)
+
+        #Warm-up not needed, but might try it out later on
+        self.AdamW = torch.optim.AdamW(lr = lr)
+
+        #The current online-trajectory being encountered. This 
+        self.current_traj = []
+
+        #The environment acted on, has to implement:
+        """
+        env: performs a step in the environment; env.step(action) -> s_t+1, r_t, terminated
+        reset: resets the environment data
+        is_terminated: 
+        """
+        self.env = env
 
 
-    def train_online(self):
-        pass
+    #Optimization algorithm: AdamW
+    def train(self, iterations, lr, batch_size):
+        #Retrieving data from replay buffer, make this be vectorized
+        replays = []
+        for i in range(batch_size):
+            replays.append(self.ReplayBuffer.retrieve())
+        replays = torch.cat(replays, dim=2)
 
-    def train_offline(self):
-        pass
+        #Predicting outputs, getting error and 
+        self.AdamW.zero_grad()
+        output = self.transformer.forward(replays)
+        self.
+
+    def env_step(self, current_traj):
+        output = self.transformer.forward(current_traj)
+        
+
+    def add_data(self, traj_list):
+        self.ReplayBuffer.add_offline(traj_list)
+        
