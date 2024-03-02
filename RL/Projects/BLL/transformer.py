@@ -122,7 +122,7 @@ class DecoderLayer(nn.Module):
             attended_val_enc = self.enc_attention(attended_norm, enc_val, enc_val)
             attended_res_enc = attended_val_enc + attended_norm
             attended_norm = layerNorm(attended_res_enc)
-         
+        
         ann_val = self.ann(attended_norm)
         ann_res = ann_val + attended_norm
         ann_norm = layerNorm(ann_res)
@@ -169,7 +169,6 @@ class Transformer(nn.Module):
             for i in range(self.enc_layers):
                 curr_repr = self.encoder[i](curr_repr)
 
-
         #Decoder-Part:
         if self.dec_layers > 0:
             #Re-assigning the (existing) encoder values and current input values, using embedding
@@ -201,8 +200,33 @@ class LinearOutput(OutputLayer):
         return x @ self.weight
 
 #"------------------------------------------------ Optimization Algorithms ------------------------------------------------"
+#Linear learning-rate warmup followed by exponential decay to ensure convergence in difficulty training transformers
+#Essentially provides a wrapper for a basic optimization algorithm to schedule the learning rate
+class NoamOptimizer:
+    def __init__(self, warmup_steps, d_model, optimizer) -> None:
+        self.step_num = 0
+        self.warmup_steps = warmup_steps
+        self.d_model = d_model
+        self.optimizer = optimizer
 
-
+    def step(self):
+        #Increments the step number
+        self.step_num += 1
+        #Sets the new learning rate according to the noam-rule
+        lr = self.d_model**(-0.5) * min(self.step_num**(-0.5), self.step_num * self.warmup_steps**(-1.5))
+        #Changes all learning-rates for different weight groups to the one given above
+        for weight_group in self.optimizer.param_groups:
+            weight_group['lr'] = lr
+        #Facilitates a step in the original optimizer, with the changed learning rate
+        self.optimizer.step()
+    
+    #For if you want to re-assign the progress of an optimization algorithm from previous state
+    def load_state_dict(self, state_dict):
+        self.__dict__.update(state_dict)
+    
+    #For if you want to save the current optimizers progress for later use
+    def get_state_dict(self):
+        return {key: value for key, value in self.__dict__.items() if key != 'optimizer'}
 #"-------------------------------- Unit-Tests ------------------------------------------------"
 def test_pos_encoding():
     pass
@@ -226,20 +250,24 @@ def test_decoder():
     pass
 
 def test_transformer():
-    data = torch.rand(50, 3, 1000)
-    labels = torch.rand(1, 1000)
-    prev_outputs = torch.rand(10, 1, 1000)
-    x = Transformer(3, 1, 128, 8, 128, LinearEmbedding, 1, 1, LinearOutput)
-    optim = torch.optim.SGD(x.parameters(), lr=0.00001)
+    data = torch.zeros(50, 3, 1000)
+    labels = torch.zeros(1, 1000)
+    prev_outputs = torch.zeros(10, 1, 1000)
+    x = Transformer(3, 1, 8, 1, 8, LinearEmbedding, 1, 1, LinearOutput)
+    optim = NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
     loss_func = nn.MSELoss()
-    for j in range(100):
+    for j in range(50):
         for i in range(data.shape[2]):
             prediction = x.forward(data[:, :, i], prev_outputs[:, :, i])
             loss = loss_func(prediction, labels[:, i])
             loss.backward()
             optim.step()
-            if i % 100 == 0:
+            if i % 1000 == 0:
                 print(loss, prediction, labels[0:5, i])
+    for i in x.parameters:
+        print(i)
+
+
 
 if __name__ == "__main__":
     test_transformer()
