@@ -1,6 +1,7 @@
 #Author: Damian Grunert
 #Date: 25-02-2024
 #Content: A modular implementation of the default transformer architecture 
+#The model can be applied to one sequence at a time, with a modular-length input- and output-sequence, and then conditioned on a following value
 #using the Pytorch - Dynamic Computational Graph for Per-Sequence-Training and Prediction
 
 import torch
@@ -8,12 +9,9 @@ import torch.nn as nn
 from typing import Type
 import torch.optim as optim
 import torch.utils.data as data
+from torch.nn.parameter import Parameter
 import math
 import copy
-from abc import ABC
-
-#Torch-Implementation:
-import torch_transformer
 
 #"-------------------------------- Low-Level Transformer Methods ------------------------------------------------"
 #Implements the layer-normalization-layer in the transformer architecture.
@@ -24,25 +22,24 @@ def layerNorm(x):
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, h, d_model):
-        super.__init__()
+        super(MultiHeadAttention, self).__init__()
         self.h = h
         self.d_k = d_model // h #Can be chosen otherwise
         #Output matrix processing the concatenated attention heads
-        self.WO = nn.parameter(torch.rand(self.d_k * h, d_model))
+        self.WO = Parameter(torch.rand(self.d_k * h, d_model))
 
         #Learnt, general parameters to yield Q, K and V from an Input for all Attention Heads combined
-        self.WQ_Comb = nn.parameter(torch.rand(d_model, d_model))
-        self.WK_Comb = nn.parameter(torch.rand(d_model, d_model))
-        self.WV_Comb = nn.parameter(torch.rand(d_model, d_model))
+        self.WQ_comb = Parameter(torch.rand(d_model, self.d_k))
+        self.WK_comb = Parameter(torch.rand(d_model, self.d_k))
+        self.WV_comb = Parameter(torch.rand(d_model, self.d_k))
 
         #List of weight matrices for each attention head
-        self.WQ = [nn.parameter(torch.rand(d_model, self.d_k) for i in range(h))]
-        self.WK = [nn.parameter(torch.rand(d_model, self.d_k) for i in range(h))]
-        self.WV = [nn.parameter(torch.rand(d_model, self.d_k) for i in range(h))]
+        self.WQ = [Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h)]
+        self.WK = [Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h)]
+        self.WV = [Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h)]
         
     def attention(self, Q, K, V):
-        softmax = nn.Softmax(dim = 0)
-        return softmax((Q @ K)*(1 / math.sqrt(self.d_k))) @ V
+        return nn.functional.softmax(((Q @ K.t())*(1 / math.sqrt(self.d_k))), dim=1) @ V
 
     def forward(self, XQ, XK, XV):
         #Encoder has the same, decoder different inputs for the attention evaluation (from which Q, K, V are constructed)
@@ -51,45 +48,42 @@ class MultiHeadAttention(nn.Module):
 
 class MaskedMultiHeadAttention(MultiHeadAttention):
     def attention(self, Q, K, V):
-        softmax = nn.Softmax(dim = 0)
-        mask = torch.tril(torch.ones(Q.shape[0], K.shape[1]))
-        return (softmax((Q @ K))* mask *(1 / math.sqrt(self.d_k))) @ V
+        mask = torch.tril(torch.ones(Q.shape[0], K.shape[0]))
+        return (nn.functional.softmax((Q @ K.t()), dim=1)* mask *(1 / math.sqrt(self.d_k))) @ V
 
 #Implementation of one single ANN layer as used in most transformers with an additional residual connection
 class ANNLayer(nn.Module):
     def __init__(self, d_ff, d_model):
-        super.__init__()
+        super(ANNLayer, self).__init__()
         self.d_ff = d_ff
         self.d_model = d_model
-        self.weights_1, self.bias_1 = nn.parameter(nn.init.kaiming_normal_(torch.empty(d_ff, d_model))), nn.parameter(nn.init.ones_(torch.empty(d_ff)))
-        self.weights_2, self.bias_2 = nn.parameter(nn.init.kaiming_normal_(torch.empty(d_model, d_ff))), nn.parameter(nn.init.ones_(torch.empty(d_model)))
+        self.weights_1, self.bias_1 = Parameter(nn.init.kaiming_normal_(torch.empty(d_model, d_ff))), Parameter(nn.init.ones_(torch.empty(d_ff)))
+        self.weights_2, self.bias_2 = Parameter(nn.init.kaiming_normal_(torch.empty(d_ff, d_model))), Parameter(nn.init.ones_(torch.empty(d_model)))
     
     def forward(self, X):
-        return nn.ReLU(X @ self.weights_1 + self.bias_1) @ self.weights_2 + self.bias_2
+        return nn.functional.relu(X @ self.weights_1 + self.bias_1) @ self.weights_2 + self.bias_2
 
 #"-------------------------------- Higher-Level Transformer-Components ------------------------------------------------"
 def postionalEncoding(X):
     #Creates a 'transposed vector' of the sequence positions from 0 to the amount of sequence members
     pos_vec = torch.arange(0, X.shape[0]).unsqueeze(1)
-    div_vec = torch.float_pow(torch.tensor(10000), torch.arange(0, X.shape[1], 2) / X.shape[1] * (-1))
+    div_vec = torch.float_power(torch.tensor(10000), torch.arange(0, X.shape[1], 2) / X.shape[1] * (-1))
     pos_enc = torch.empty(X.shape[0], X.shape[1])
     pos_enc[:, 0::2] = torch.sin(pos_vec * div_vec)
     pos_enc[:, 1::2] = torch.cos(pos_vec * div_vec)
     return X + pos_enc
 
-class EmbeddingLayer(nn.Module, ABC):
-    @ABC.abstractmethod
+class EmbeddingLayer(nn.Module):
     def __init__(self, d_input, d_model):
-        super.__init__()
+        super(EmbeddingLayer, self).__init__()
         self.d_input = d_input
         self.d_model = d_model
-    @ABC.abstractmethod
     def forward(self, x):
         pass
 
 class EncoderLayer(nn.Module):
     def __init__(self, dim_ann, n_head, d_model):
-        super.__init__()
+        super(EncoderLayer, self).__init__()
         self.dim_ann = dim_ann
         self.n_head = n_head
         self.d_model = d_model
@@ -109,23 +103,23 @@ class EncoderLayer(nn.Module):
 
 class DecoderLayer(nn.Module):
     def __init__(self, dim_ann, n_head, d_model, has_encoder):
-        super.__init__()
+        super(DecoderLayer, self).__init__()
         self.dim_ann = dim_ann
         self.n_head = n_head
         self.d_model = d_model
         self.has_encoder = has_encoder
-        self.attention = MultiHeadAttention(n_head, d_model)
+        self.attention = MaskedMultiHeadAttention(n_head, d_model)
         if has_encoder:
             self.enc_attention = MultiHeadAttention(n_head, d_model)
         self.ann = ANNLayer(dim_ann, d_model)
 
     def forward(self, x, enc_val = None):
-        attended_val = self.attention(x)
+        attended_val = self.attention(x, x ,x)
         attended_res = attended_val + x
         attended_norm = layerNorm(attended_res)
         
         if self.has_encoder:
-            attended_val_enc = self.attention(enc_val, enc_val, attended_norm)
+            attended_val_enc = self.enc_attention(attended_norm, enc_val, enc_val)
             attended_res_enc = attended_val_enc + attended_norm
             attended_norm = layerNorm(attended_res_enc)
          
@@ -134,24 +128,20 @@ class DecoderLayer(nn.Module):
         ann_norm = layerNorm(ann_res)
         return ann_norm
 
-class OutputLayer(nn.Module, ABC):
-    @ABC.abstractmethod
+class OutputLayer(nn.Module):
     def __init__(self, d_model, d_output):
-        super.__init__()
+        super(OutputLayer, self).__init__()
         self.d_model = d_model
         self.d_output = d_output
         pass
-    @ABC.abstractmethod
     def forward(self, x):
         pass
-
-#"-------------------------------- Finished Implementations ------------------------------------------------"
 
 #Complete transformer-architecture, entailing a variable number of encoder and decoder layers
 class Transformer(nn.Module):
     def __init__(self, d_input: int, d_output: int, d_model: int, n_head: int, dim_ann: int, 
                  embedding_layer: Type[EmbeddingLayer], enc_layers: int, dec_layers: int, output_layer: Type[OutputLayer]):
-        super.__init__()
+        super(Transformer, self).__init__()
         self.d_model = d_model
         self.n_head = n_head
         self.enc_layers = enc_layers
@@ -160,31 +150,55 @@ class Transformer(nn.Module):
         self.d_input = d_input
         self.d_output = d_output
 
-        self.embedding_layer = embedding_layer(self.d_model)
+        self.input_embedding_layer = embedding_layer(self.d_input, self.d_model)
+        self.output_embedding_layer = embedding_layer(self.d_output, self.d_model)
         if enc_layers > 0:
             self.encoder = [EncoderLayer(dim_ann, n_head, d_model) for i in range(enc_layers)]
         if dec_layers > 0:
             self.decoder = [DecoderLayer(dim_ann, n_head, d_model, enc_layers > 0) for i in range(dec_layers)]
-        self.output_layer = output_layer
+        self.output_layer = output_layer(d_model, d_output)
 
-    def forward(self, X, Output):
-        #Embedding-Layer
-        curr_repr = self.embedding_layer(X)
-        assert int(curr_repr.shape[0]) == self.d_model
-        #Positional Encoding Layer
-        curr_repr = postionalEncoding(curr_repr)
-        #Encoder-Block
-        for i in range(self.enc_layers):
-            curr_repr = self.encoder[i](curr_repr)
-        #Decoder-Block
-        for i in range(self.dec_layers):
-            curr_repr = self.decoder[i](curr_repr, Output)
-        #Output-Function
-        return self.output_layer(curr_repr)
+    def forward(self, X, output):
+        #Encoder-Part:
+        if self.enc_layers > 0:
+            #Embedding-Layer
+            curr_repr = self.input_embedding_layer(X)
+            #Positional Encoding Layer
+            curr_repr = postionalEncoding(curr_repr)
+            #Encoder-Block
+            for i in range(self.enc_layers):
+                curr_repr = self.encoder[i](curr_repr)
+
+
+        #Decoder-Part:
+        if self.dec_layers > 0:
+            #Re-assigning the (existing) encoder values and current input values, using embedding
+            if self.enc_layers > 0:
+                enc_repr, curr_repr = curr_repr, self.output_embedding_layer(output)
+            else:
+                enc_repr, curr_repr = None, self.output_embedding_layer(output)
+            #Positional encoding to the existing inputs
+            curr_repr = postionalEncoding(curr_repr)
+            #Decoder-Block
+            for i in range(self.dec_layers):
+                curr_repr = self.decoder[i](curr_repr, enc_repr)
+        #Output-Function is applied to the d_seq \times d_model matrix to a d_seq \times d_output model, with the last vector being returned as the final output
+        return self.output_layer(curr_repr)[-1, :]
 
 #"-------------------------------- Implementation Of Common High-Level Components ------------------------------------------------"
+class LinearEmbedding(EmbeddingLayer):
+    def __init__(self, d_input, d_model):
+        super(LinearEmbedding, self).__init__(d_input, d_model)
+        self.weight = Parameter(torch.rand(d_input, d_model))
+    def forward(self, x):
+        return x @ self.weight
 
-
+class LinearOutput(OutputLayer):
+    def __init__(self, d_model, d_output):
+        super(LinearOutput, self).__init__(d_model, d_output)
+        self.weight = Parameter(torch.rand(d_model, d_output))
+    def forward(self, x):
+        return x @ self.weight
 
 #"------------------------------------------------ Optimization Algorithms ------------------------------------------------"
 
@@ -210,3 +224,22 @@ def test_encoder():
 
 def test_decoder():
     pass
+
+def test_transformer():
+    data = torch.rand(50, 3, 1000)
+    labels = torch.rand(1, 1000)
+    prev_outputs = torch.rand(10, 1, 1000)
+    x = Transformer(3, 1, 128, 8, 128, LinearEmbedding, 1, 1, LinearOutput)
+    optim = torch.optim.SGD(x.parameters(), lr=0.00001)
+    loss_func = nn.MSELoss()
+    for j in range(100):
+        for i in range(data.shape[2]):
+            prediction = x.forward(data[:, :, i], prev_outputs[:, :, i])
+            loss = loss_func(prediction, labels[:, i])
+            loss.backward()
+            optim.step()
+            if i % 100 == 0:
+                print(loss, prediction, labels[0:5, i])
+
+if __name__ == "__main__":
+    test_transformer()
