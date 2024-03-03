@@ -34,9 +34,9 @@ class MultiHeadAttention(nn.Module):
         self.WV_comb = Parameter(torch.rand(d_model, self.d_k))
 
         #List of weight matrices for each attention head
-        self.WQ = [Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h)]
-        self.WK = [Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h)]
-        self.WV = [Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h)]
+        self.WQ = nn.ParameterList(Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h))
+        self.WK = nn.ParameterList(Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h))
+        self.WV = nn.ParameterList(Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h))
         
     def attention(self, Q, K, V):
         return nn.functional.softmax(((Q @ K.t())*(1 / math.sqrt(self.d_k))), dim=1) @ V
@@ -150,12 +150,13 @@ class Transformer(nn.Module):
         self.d_input = d_input
         self.d_output = d_output
 
+        #Adding the used layers and registering them as submodules for the optimizer to track the weights
         self.input_embedding_layer = embedding_layer(self.d_input, self.d_model)
         self.output_embedding_layer = embedding_layer(self.d_output, self.d_model)
         if enc_layers > 0:
-            self.encoder = [EncoderLayer(dim_ann, n_head, d_model) for i in range(enc_layers)]
+            self.encoder = nn.ModuleList([EncoderLayer(dim_ann, n_head, d_model) for i in range(enc_layers)])
         if dec_layers > 0:
-            self.decoder = [DecoderLayer(dim_ann, n_head, d_model, enc_layers > 0) for i in range(dec_layers)]
+            self.decoder = nn.ModuleList([DecoderLayer(dim_ann, n_head, d_model, enc_layers > 0) for i in range(dec_layers)])
         self.output_layer = output_layer(d_model, d_output)
 
     def forward(self, X, output):
@@ -185,16 +186,16 @@ class Transformer(nn.Module):
         return self.output_layer(curr_repr)[-1, :]
 
 #"-------------------------------- Implementation Of Common High-Level Components ------------------------------------------------"
-class LinearEmbedding(EmbeddingLayer):
+class LinearEmbedding(nn.Module):
     def __init__(self, d_input, d_model):
-        super(LinearEmbedding, self).__init__(d_input, d_model)
+        super(LinearEmbedding, self).__init__()
         self.weight = Parameter(torch.rand(d_input, d_model))
     def forward(self, x):
         return x @ self.weight
 
-class LinearOutput(OutputLayer):
+class LinearOutput(nn.Module):
     def __init__(self, d_model, d_output):
-        super(LinearOutput, self).__init__(d_model, d_output)
+        super(LinearOutput, self).__init__()
         self.weight = Parameter(torch.rand(d_model, d_output))
     def forward(self, x):
         return x @ self.weight
@@ -249,12 +250,14 @@ def test_encoder():
 def test_decoder():
     pass
 
+#Simple unit test to check the general functioning of the transformer by learning noise
 def test_transformer():
-    data = torch.zeros(50, 3, 1000)
-    labels = torch.zeros(1, 1000)
-    prev_outputs = torch.zeros(10, 1, 1000)
+    data = torch.rand(50, 3, 1000)
+    labels = torch.rand(1, 1000)
+    prev_outputs = torch.rand(10, 1, 1000)
     x = Transformer(3, 1, 8, 1, 8, LinearEmbedding, 1, 1, LinearOutput)
-    optim = NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
+    num = 0
+    optim = torch.optim.Adam(x.parameters(), lr=0.00001) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
     loss_func = nn.MSELoss()
     for j in range(50):
         for i in range(data.shape[2]):
@@ -263,8 +266,8 @@ def test_transformer():
             loss.backward()
             optim.step()
             if i % 1000 == 0:
-                print(loss, prediction, labels[0:5, i])
-    for i in x.parameters:
+                print(float(loss), loss)
+    for i in x.parameters():
         print(i)
 
 
