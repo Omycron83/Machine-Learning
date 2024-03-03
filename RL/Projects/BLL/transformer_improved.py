@@ -2,7 +2,8 @@
 #Date: 25-02-2024
 #Content: A modular implementation of an improved transformer architecture incorporating possible improvements, such as:
 # - Vectorized and parallelizable mini-batch training and prediction using a hyperparameterized maximum sequence length padded with zero vectors in the front for both sequences
-# - Being able to train entire sequences using a start token and the masked self attention mechanism so that one can condition the decoder output on the entire given output ---
+# (The fixed sequence length is to allow for parallelized training through a common tensor and to control the length of long-term interactions)
+# - Being able to train entire sequences using a start token formed by a one-vector and the masked self attention mechanism so that one can condition the decoder output on the entire given output ---
 # - Pre-LN-Architecture ---
 # - GeLU activation function ---
 # - The DropOut-Mechanism for the residuals, ANN hidden layer and attention sublayer, however not the embedding ---
@@ -159,6 +160,7 @@ class Transformer(nn.Module):
         self.dim_ann = dim_ann
         self.d_input = d_input
         self.d_output = d_output
+        #For now, we assume input = output length
         self.max_seq_length = max_seq_length
 
         #Adding the used layers and registering them as submodules for the optimizer to track the weights
@@ -170,8 +172,10 @@ class Transformer(nn.Module):
             self.decoder = nn.ModuleList([DecoderLayer(dim_ann, n_head, d_model, enc_layers > 0) for i in range(dec_layers)])
         self.output_layer = output_layer(d_model, d_output)
 
-    #Assuming a batch input of dimensions inp_seq_len x d_input x batch_size and out_seq_len x d_output x batchsize respectively, predicts all values for the sequence
+    #Assuming a batch input of dimensions batch_size x inp_seq_len x d_input and batchsize x out_seq_len x d_output respectively, predicts all values for the sequence (may be used to predict the last or all sequence values)
     def forward(self, X, output, dropout = 0):
+        #Data-preprocessing: figuring out the binary mask for 
+
         #Encoder-Part:
         if self.enc_layers > 0:
             #Embedding-Layer
@@ -185,7 +189,7 @@ class Transformer(nn.Module):
         #Decoder-Part:
         if self.dec_layers > 0:
             #Begin of sequence vector, arbitrarily choosen to be the zero vectors
-            output = torch.cat([torch.zeros(1, output.shape[1]), output], dim = 0)
+            output = torch.cat([torch.ones(1, output.shape[1]), output], dim = 0)
             #Re-assigning the (existing) encoder values and current input values, using embedding
             if self.enc_layers > 0:
                 enc_repr, curr_repr = curr_repr, self.output_embedding_layer(output)
@@ -199,9 +203,19 @@ class Transformer(nn.Module):
         #Output-Function is applied to the d_seq \times d_model matrix to a d_seq \times d_output model, with the last vector being returned as the final output
         return self.output_layer(curr_repr)
     
-    #Assumes a list of tensor-inputs of variable size and trims them down or pads them w/ zeros to 
-    def pad_inputs(self, inputs):
-        pass
+    #Assumes a list of tensor-inputs of variable size d_seq x d_input/output and trims them down or pads them w/ zeros to conform with the sequence length for encoder and decoder
+    def pad_inputs(self, inputs, outputs):
+        input_save, output_save = torch.empty(self.max_seq_length, inputs[0].shape[1] ,len(inputs)), torch.empty(self.max_seq_length, outputs[0].shape[1] ,len(inputs))
+        #Removing all elements in sequences longer than the max-sequence-length
+        for i in inputs:
+            if i.shape[0] > self.max_seq_length:
+                i = i[0:self.max_seq_length + 1]
+        for i in outputs:
+            if i.shape[0] > self.max_seq_length:
+                i = i[0:self.max_seq_length + 1]
+        #Padding the remaining sequences with length <= max_seq_length to the desired dimensions
+        return torch.nn.utils.rnn.pad_sequence(inputs), torch.nn.utils.rnn.pad_sequence(outputs) 
+    
     
     #Retrieves the parameters (Wrapper)
     def retrieve_weights(self):
