@@ -3,10 +3,10 @@
 #Content: A modular implementation of an improved transformer architecture incorporating possible improvements, such as:
 # - Vectorized and parallelizable mini-batch training and prediction using a hyperparameterized maximum sequence length padded with zero vectors in the front for both sequences
 # - Being able to train entire sequences using a start token and the masked self attention mechanism so that one can condition the decoder output on the entire given output
-# - Pre-LN-Architecture
-# - GeLU activation function
-# - The DropOut-Mechanism for ANN and attention regularization
-# - Removing the bias in feedforward-layers
+# - Pre-LN-Architecture ---
+# - GeLU activation function ---
+# - The DropOut-Mechanism for the residuals, ANN hidden layer and attention sublayer, however not the embedding ---
+# - Removing the bias in feedforward-layers ---
 
 import torch
 import torch.nn as nn
@@ -23,6 +23,11 @@ import copy
 def layerNorm(x):
     std_mean = torch.std_mean(x, dim = 0)
     return (x - std_mean[1]) / (std_mean[0] + 0.0001)
+
+def dropout_func(x, dropout):
+    dropout_chances = torch.rand(x.shape)
+    dropout_mask = dropout_chances > dropout
+    return (x * dropout_mask) / (1-dropout)
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, h, d_model):
@@ -42,18 +47,18 @@ class MultiHeadAttention(nn.Module):
         self.WK = nn.ParameterList(Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h))
         self.WV = nn.ParameterList(Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h))
         
-    def attention(self, Q, K, V):
-        return nn.functional.softmax(((Q @ K.t())*(1 / math.sqrt(self.d_k))), dim=1) @ V
+    def attention(self, Q, K, V, dropout = 0):
+        return dropout_func(nn.functional.softmax(((Q @ K.t())*(1 / math.sqrt(self.d_k))), dim=1), dropout) @ V
 
-    def forward(self, XQ, XK, XV):
+    def forward(self, XQ, XK, XV, dropout = 0):
         #Encoder has the same, decoder different inputs for the attention evaluation (from which Q, K, V are constructed)
-        heads = [self.attention(XQ @ self.WQ_comb @ self.WQ[i], XK @ self.WK_comb @ self.WK[i], XV @ self.WV_comb @ self.WV[i]) for i in range(self.h)]
+        heads = [self.attention(XQ @ self.WQ_comb @ self.WQ[i], XK @ self.WK_comb @ self.WK[i], XV @ self.WV_comb @ self.WV[i], dropout) for i in range(self.h)]
         return torch.cat(heads, dim = 1) @ self.WO
 
 class MaskedMultiHeadAttention(MultiHeadAttention):
-    def attention(self, Q, K, V):
+    def attention(self, Q, K, V, dropout = 0):
         mask = torch.tril(torch.ones(Q.shape[0], K.shape[0]))
-        return (nn.functional.softmax((Q @ K.t()), dim=1)* mask *(1 / math.sqrt(self.d_k))) @ V
+        return dropout_func(nn.functional.softmax((Q @ K.t()), dim=1)* mask *(1 / math.sqrt(self.d_k)), dropout) @ V
 
 #Implementation of one single ANN layer as used in most transformers with an additional residual connection
 class ANNLayer(nn.Module):
@@ -61,11 +66,11 @@ class ANNLayer(nn.Module):
         super(ANNLayer, self).__init__()
         self.d_ff = d_ff
         self.d_model = d_model
-        self.weights_1, self.bias_1 = Parameter(nn.init.kaiming_normal_(torch.empty(d_model, d_ff))), Parameter(nn.init.ones_(torch.empty(d_ff)))
-        self.weights_2, self.bias_2 = Parameter(nn.init.kaiming_normal_(torch.empty(d_ff, d_model))), Parameter(nn.init.ones_(torch.empty(d_model)))
+        self.weights_1 = Parameter(nn.init.kaiming_normal_(torch.empty(d_model, d_ff)))
+        self.weights_2 = Parameter(nn.init.kaiming_normal_(torch.empty(d_ff, d_model)))
     
-    def forward(self, X):
-        return nn.functional.relu(X @ self.weights_1 + self.bias_1) @ self.weights_2 + self.bias_2
+    def forward(self, X, dropout = 0):
+        return dropout_func(nn.functional.gelu(X @ self.weights_1), dropout) @ self.weights_2
 
 #"-------------------------------- Higher-Level Transformer-Components ------------------------------------------------"
 def postionalEncoding(X):
@@ -94,16 +99,16 @@ class EncoderLayer(nn.Module):
         self.attention = MultiHeadAttention(n_head, d_model)
         self.ann = ANNLayer(dim_ann, d_model)
 
-    #We are assuming a post-LN-Architecture
-    def forward(self, x):
-        attended_val = self.attention(x, x, x)
-        attended_res = attended_val + x
-        attended_norm = layerNorm(attended_res)
+    #We are assuming a pre-LN-Architecture
+    def forward(self, x, dropout = 0):
+        norm_val = layerNorm(x)
+        attended_val = self.attention(norm_val, norm_val ,norm_val, dropout)
+        attended_res = dropout_func(attended_val, dropout) + norm_val
 
-        ann_val = self.ann(attended_norm)
-        ann_res = ann_val + attended_norm
-        ann_norm = layerNorm(ann_res)
-        return ann_norm
+        ann_norm = layerNorm(attended_res)
+        ann_val = self.ann(ann_norm, dropout)
+        ann_res = dropout_func(ann_val, dropout) + ann_norm
+        return ann_res
 
 class DecoderLayer(nn.Module):
     def __init__(self, dim_ann, n_head, d_model, has_encoder):
@@ -117,20 +122,20 @@ class DecoderLayer(nn.Module):
             self.enc_attention = MultiHeadAttention(n_head, d_model)
         self.ann = ANNLayer(dim_ann, d_model)
 
-    def forward(self, x, enc_val = None):
-        attended_val = self.attention(x, x ,x)
-        attended_res = attended_val + x
-        attended_norm = layerNorm(attended_res)
+    def forward(self, x, enc_val = None, dropout = 0):
+        norm_val = layerNorm(x)
+        attended_val = self.attention(norm_val, norm_val ,norm_val)
+        attended_res = dropout_func(attended_val, dropout) + norm_val
         
         if self.has_encoder:
-            attended_val_enc = self.enc_attention(attended_norm, enc_val, enc_val)
-            attended_res_enc = attended_val_enc + attended_norm
-            attended_norm = layerNorm(attended_res_enc)
+            norm_val_enc = layerNorm(attended_res)
+            attended_val_enc = self.enc_attention(norm_val_enc, enc_val, enc_val, dropout)
+            attended_res = attended_val_enc + norm_val_enc
         
-        ann_val = self.ann(attended_norm)
-        ann_res = ann_val + attended_norm
-        ann_norm = layerNorm(ann_res)
-        return ann_norm
+        ann_norm = layerNorm(attended_res)
+        ann_val = self.ann(ann_norm, dropout)
+        ann_res = dropout_func(ann_val, dropout) + ann_norm
+        return ann_res
 
 class OutputLayer(nn.Module):
     def __init__(self, d_model, d_output):
@@ -163,7 +168,7 @@ class Transformer(nn.Module):
             self.decoder = nn.ModuleList([DecoderLayer(dim_ann, n_head, d_model, enc_layers > 0) for i in range(dec_layers)])
         self.output_layer = output_layer(d_model, d_output)
 
-    def forward(self, X, output):
+    def forward(self, X, output, dropout = 0):
         #Encoder-Part:
         if self.enc_layers > 0:
             #Embedding-Layer
@@ -172,7 +177,7 @@ class Transformer(nn.Module):
             curr_repr = postionalEncoding(curr_repr)
             #Encoder-Block
             for i in range(self.enc_layers):
-                curr_repr = self.encoder[i](curr_repr)
+                curr_repr = self.encoder[i](curr_repr, dropout)
 
         #Decoder-Part:
         if self.dec_layers > 0:
@@ -187,7 +192,7 @@ class Transformer(nn.Module):
             curr_repr = postionalEncoding(curr_repr)
             #Decoder-Block
             for i in range(self.dec_layers):
-                curr_repr = self.decoder[i](curr_repr, enc_repr)
+                curr_repr = self.decoder[i](curr_repr, enc_repr, dropout)
         #Output-Function is applied to the d_seq \times d_model matrix to a d_seq \times d_output model, with the last vector being returned as the final output
         return self.output_layer(curr_repr)[-1, :]
 
