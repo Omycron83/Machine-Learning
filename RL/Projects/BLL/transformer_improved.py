@@ -2,7 +2,7 @@
 #Date: 25-02-2024
 #Content: A modular implementation of an improved transformer architecture incorporating possible improvements, such as:
 # - Vectorized and parallelizable mini-batch training and prediction using a hyperparameterized maximum sequence length padded with zero vectors in the front for both sequences
-# - Being able to train entire sequences using a start token and the masked self attention mechanism so that one can condition the decoder output on the entire given output
+# - Being able to train entire sequences using a start token and the masked self attention mechanism so that one can condition the decoder output on the entire given output ---
 # - Pre-LN-Architecture ---
 # - GeLU activation function ---
 # - The DropOut-Mechanism for the residuals, ANN hidden layer and attention sublayer, however not the embedding ---
@@ -150,7 +150,7 @@ class OutputLayer(nn.Module):
 #Complete transformer-architecture, entailing a variable number of encoder and decoder layers
 class Transformer(nn.Module):
     def __init__(self, d_input: int, d_output: int, d_model: int, n_head: int, dim_ann: int, 
-                 embedding_layer: Type[EmbeddingLayer], enc_layers: int, dec_layers: int, output_layer: Type[OutputLayer]):
+                 embedding_layer: Type[EmbeddingLayer], enc_layers: int, dec_layers: int, output_layer: Type[OutputLayer], max_seq_length):
         super(Transformer, self).__init__()
         self.d_model = d_model
         self.n_head = n_head
@@ -159,6 +159,7 @@ class Transformer(nn.Module):
         self.dim_ann = dim_ann
         self.d_input = d_input
         self.d_output = d_output
+        self.max_seq_length = max_seq_length
 
         #Adding the used layers and registering them as submodules for the optimizer to track the weights
         self.input_embedding_layer = embedding_layer(self.d_input, self.d_model)
@@ -169,6 +170,7 @@ class Transformer(nn.Module):
             self.decoder = nn.ModuleList([DecoderLayer(dim_ann, n_head, d_model, enc_layers > 0) for i in range(dec_layers)])
         self.output_layer = output_layer(d_model, d_output)
 
+    #Assuming a batch input of dimensions inp_seq_len x d_input x batch_size and out_seq_len x d_output x batchsize respectively, predicts all values for the sequence
     def forward(self, X, output, dropout = 0):
         #Encoder-Part:
         if self.enc_layers > 0:
@@ -195,7 +197,11 @@ class Transformer(nn.Module):
             for i in range(self.dec_layers):
                 curr_repr = self.decoder[i](curr_repr, enc_repr, dropout)
         #Output-Function is applied to the d_seq \times d_model matrix to a d_seq \times d_output model, with the last vector being returned as the final output
-        return self.output_layer(curr_repr)[-1, :]
+        return self.output_layer(curr_repr)
+    
+    #Assumes a list of tensor-inputs of variable size and trims them down or pads them w/ zeros to 
+    def pad_inputs(self, inputs):
+        pass
     
     #Retrieves the parameters (Wrapper)
     def retrieve_weights(self):
