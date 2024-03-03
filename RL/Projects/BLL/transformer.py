@@ -172,6 +172,8 @@ class Transformer(nn.Module):
 
         #Decoder-Part:
         if self.dec_layers > 0:
+            #Begin of sequence vector, arbitrarily choosen to be the zero vectors
+            output = torch.cat([torch.zeros(output.shape[1]), output], dim = 0)
             #Re-assigning the (existing) encoder values and current input values, using embedding
             if self.enc_layers > 0:
                 enc_repr, curr_repr = curr_repr, self.output_embedding_layer(output)
