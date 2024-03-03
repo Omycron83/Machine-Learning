@@ -7,6 +7,7 @@
 # - GeLU activation function ---
 # - The DropOut-Mechanism for the residuals, ANN hidden layer and attention sublayer, however not the embedding ---
 # - Removing the bias in feedforward-layers ---
+# - QoL: Being able to save and retrieve the parameters of the model ---
 
 import torch
 import torch.nn as nn
@@ -195,6 +196,14 @@ class Transformer(nn.Module):
                 curr_repr = self.decoder[i](curr_repr, enc_repr, dropout)
         #Output-Function is applied to the d_seq \times d_model matrix to a d_seq \times d_output model, with the last vector being returned as the final output
         return self.output_layer(curr_repr)[-1, :]
+    
+    #Retrieves the parameters (Wrapper)
+    def retrieve_weights(self):
+        return self.state_dict()
+    
+    #Assigns the parameters (Wrapper)
+    def assign_weights(self, state_dict):
+        self.load_state_dict(state_dict)
 
 #"-------------------------------- Implementation Of Common High-Level Components ------------------------------------------------"
 class LinearEmbedding(nn.Module):
