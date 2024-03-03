@@ -5,9 +5,9 @@
 # - Pre-LN-Architecture
 # - GeLU activation function
 # - The DropOut-Mechanism for ANN and attention regularization
-# - 
-
-#Old things I might want to carry over
+# - Removing the bias in feedforward-layers
+# 
+#
 
 #List of weight matrices for each attention head
 self.WQ = [nn.parameter(torch.rand(d_model, self.d_k) for i in range(h))]
