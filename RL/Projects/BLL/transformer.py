@@ -257,7 +257,7 @@ def test_transformer():
     prev_outputs = torch.rand(10, 1, 1000)
     x = Transformer(3, 1, 8, 1, 8, LinearEmbedding, 1, 1, LinearOutput)
     num = 0
-    optim = torch.optim.Adam(x.parameters(), lr=0.00001) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
+    optim = torch.optim.Adam(x.parameters(), lr=0.0001) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
     loss_func = nn.MSELoss()
     for j in range(50):
         for i in range(data.shape[2]):
