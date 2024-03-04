@@ -77,7 +77,7 @@ class MultiHeadAttention(nn.Module):
         else:
             heads = [self.attention_enc_dec(XQ @ self.WQ_comb @ self.WQ[i], XK @ self.WK_comb @ self.WK[i], XV @ self.WV_comb @ self.WV[i], dropout, mask_indices, mask_output_indices) for i in range(self.h)]
 
-        return torch.cat(heads, dim = 1) @ self.WO
+        return torch.cat(heads, dim = 2) @ self.WO
 
 class MaskedMultiHeadAttention(MultiHeadAttention):
     def attention(self, Q, K, V, dropout = 0, mask_indices = None):
@@ -340,21 +340,21 @@ def test_decoder():
 
 #Simple unit test to check the general functioning of the transformer by learning noise
 def test_transformer():
-    data = [torch.rand((i+1)*2, 3) for i in range(3)]
-    outputs = [torch.rand((i+1)*2, 1) for i in range(3)]
-    x = Transformer(3, 1, 8, 1, 8, LinearEmbedding, 1, 1, LinearOutput, max_seq_length=5)
+    data = [torch.rand(4, 3) for i in range(100)]
+    outputs = [torch.rand(4, 1) for i in range(100)]
+    x = Transformer(3, 1, 8, 8, 128, LinearEmbedding, 1, 1, LinearOutput, max_seq_length=5)
     data, outputs = x.pad_inputs(data, outputs)
-    optim = torch.optim.Adam(x.parameters(), lr=0.0001) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
+    optim = torch.optim.Adam(x.parameters(), lr=0.00001) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
     loss_func = nn.MSELoss()
     for j in range(5000):
-        prediction = x.forward(data, outputs, dropout = 0.01)
+        prediction = x.forward(data, outputs, dropout = 0.0)
         loss = loss_func(prediction, outputs)
         loss.backward()
         optim.step()
-        if j % 10 == 0:
+        if j % 100 == 0:
             print(float(loss))
-    for i in x.parameters():
-        print(i)
+    assert(float(loss) <= 0.15)
+
 
 
 
