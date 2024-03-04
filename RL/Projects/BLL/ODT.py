@@ -28,7 +28,7 @@ class ReplayBuffer:
 
         if self.g[chosen_traj_index].shape[0] > K:
             slice_index = random.randint(0, self.g[chosen_traj_index].shape[0] - K)
-            return self.g[slice_index:K + slice_index, :], self.s[slice_index:K + slice_index, :] ,self.a[slice_index:K + slice_index, :]
+            return self.g[slice_index:K + slice_index, :], self.s[slice_index:K + slice_index, :], self.a[slice_index:K + slice_index, :]
         else:
             return self.g[chosen_traj_index], self.s[chosen_traj_index], self.a[chosen_traj_index]
     
@@ -136,6 +136,15 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
         # sum up along the action dimensions
         # Return tensor shape: (batch_size, context_len)
         return self.log_prob(x).sum(axis=2)
+
+def loss_fn(a_hat_dist, a, attention_mask, entropy_reg):
+    # a_hat is a SquashedNormal Distribution
+    log_likelihood = a_hat_dist.log_likelihood(a)[attention_mask > 0].mean()
+
+    entropy = a_hat_dist.entropy().mean()
+    loss = -(log_likelihood + entropy_reg * entropy)
+
+    return (loss, -log_likelihood, entropy)
 # ------------------------------------------------------------------------------------------------------------------------------------------
 
 class OutputDist(torch.nn.Module):
@@ -150,6 +159,16 @@ class OutputDist(torch.nn.Module):
         log_std = (self.log_std_bounds[0] + 0.5 * (self.log_std_bounds[1] - self.log_std_bounds[0]) * (std + 1)).exp()
         return SquashedNormal(mu, log_std)
 
+class OutputLayer(torch.nn.Module):
+    def __init__(self, model_dim, dim_s, dim_a, log_std_bounds = [-5.0, 2.0]) -> None:
+        super.__init__()
+        self.model_dim = model_dim
+        self.OutputDist = OutputDist(model_dim, dim_a, log_std_bounds)
+        self.W_s = torch.nn.Parameter(torch.rand(model_dim, dim_s))
+        self.W_r = torch.nn.Parameter(torch.rand(model_dim, 1))
+    def forward(self, curr_repr):
+        curr_repr = curr_repr.reshape(curr_repr.shape[0], curr_repr.shape[1] // 3, 3, self.model_dim).permute(0, 2, 1, 3)
+        R, S, A = curr_repr[:, 2], curr_repr[], curr_repr[]
 #Used in discrete action space - to do for later implementations for discrete action spaces
 class OutputDistDisc(transformer_improved.OutputLayer):
     def forward(self, x):
@@ -161,12 +180,18 @@ class ODTEmb(torch.nn.Module):
         self.WR = torch.nn.Parameter(torch.rand(1, d_model)) # Embedding matrix for the rewards
         self.WS = torch.nn.Parameter(torch.rand(d_state, d_model)) # Embedding matrix for the rewards
         self.WA = torch.nn.Parameter(torch.rand(d_action, d_model)) # Embedding matrix for the rewards
+        self.d_model = d_model
 
     def forward(self, R, S, A):
         #Concatenizing the padded lists of return, state and action tensors to lists of the shape d_batch x d_max_sequence x d_r/s/a
         R, S, A = torch.cat(R, dim = 0).view(len(R), R[0].shape[0], R[0].shape[1]), torch.cat(S, dim=0).view(len(S), S[0].shape[0], S[0].shape[1]), torch.cat(A, dim = 0).view(len(A), A[0].shape[0], A[0].shape[1])
-        #Multiplying them with the encoding matrices so that they are all of size d_batch x d_max_sequence x d_model, and then concatenating them to a d_batch x d_max_sequence x d_model tensor
-        return torch.cat(R @ self.WR, S @ self.WS, A @ self.WA, dim = 2) 
+        #Multiplying them with the encoding matrices so that they are all of size d_batch x d_max_sequence x d_model, and then concatenating them to a d_batch x d_max_sequence * 3 x d_model tensor
+        #Temporarily stacking the values along a new dimension, such that for each batch entry there are now three seperate sequences in the tensor
+        curr_repr = torch.stack(R, S, A, dim = 1)
+        #Swapping the dimension 1 (along which the three input-types are represented) and the dimension 2 (along which the datapoints are ordered) -> instead of having three different representations for d_seq datapoints, we have d_seq datapoints with the three entries 
+        curr_repr.permute(0, 2, 1, 3)
+        #Collapsing the d_seq datapoints with 3 values each to one tensor of the final desired size
+        return curr_repr.reshape(R.shape[0], 3 * R.shape[1], self.d_model)
 
 #There is no real mask for the representation formed
 class EmptyEmb(transformer_improved):
@@ -182,8 +207,11 @@ class ODTTransformer(transformer_improved.Transformer):
     def forward(self, R, S, A, dropout=0):
         R, S, A = self.pad_inputs(R), self.pad_inputs(S), self.pad_inputs(A)
         output_seq = ODTEmb(R, S, A)
+        #One may notice that we applied the positional encoding to the 3-sequence, instead of to each R, S, A-sequence in seperate
+        #I postulate that this helps differentiating the meaning of the three while still preserving a notion of distance across time
+        #I will also for now not infuse additional information about the window-position in the entire trajectory, though I will experiment with that later on
         curr_repr = super().forward(None, output_seq, dropout) #No input X due to decoder-only (doesnt call it anyway)
-        #Now, we 
+        #Now, we use the preliminary output created by the decoder to re-assign  
 
 
 #High-level class implementing the ODT-algorithm using multiple other classes to enable rl training
@@ -240,6 +268,9 @@ class ODT:
         if terminated:
             self.ReplayBuffer.add_online(self.current_traj)
             self.current_traj = []
+        
+    def evaluate(self, env):
+        pass
 
     def add_data(self, traj_list):
         self.ReplayBuffer.add_offline(traj_list)
