@@ -22,7 +22,9 @@ class ReplayBuffer:
         self.a = []
 
     #Randomly samples from trajectories according to relative size, and then from length-K subtrajectories from the chosen trajectory
-    def retrieve(self, K):
+    def retrieve(self, K = None):
+        if K == None:
+            K = self.max_length
         traj_lengths = [g.shape[0] for g in self.g]
         chosen_traj_index = random.choice(list(range(len(self.g))), weights=traj_lengths) #Picks an index proportional to the length of the trajectory at that index
 
@@ -137,14 +139,14 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
         # Return tensor shape: (batch_size, context_len)
         return self.log_prob(x).sum(axis=2)
 
-def loss_fn(a_hat_dist, a, attention_mask, entropy_reg):
+def loss_fn(a_hat_dist, a, entropy_reg):
     # a_hat is a SquashedNormal Distribution
-    log_likelihood = a_hat_dist.log_likelihood(a)[attention_mask > 0].mean()
+    log_likelihood = a_hat_dist.log_likelihood(a)
 
     entropy = a_hat_dist.entropy().mean()
     loss = -(log_likelihood + entropy_reg * entropy)
 
-    return (loss, -log_likelihood, entropy)
+    return loss, -log_likelihood, entropy
 # ------------------------------------------------------------------------------------------------------------------------------------------
 
 class OutputDist(torch.nn.Module):
@@ -168,7 +170,8 @@ class OutputLayer(torch.nn.Module):
         self.W_r = torch.nn.Parameter(torch.rand(model_dim, 1))
     def forward(self, curr_repr):
         curr_repr = curr_repr.reshape(curr_repr.shape[0], curr_repr.shape[1] // 3, 3, self.model_dim).permute(0, 2, 1, 3)
-        R, S, A = curr_repr[:, 2], curr_repr[], curr_repr[]
+        R, S, A = curr_repr[:, 2] @ self.W_r, curr_repr[:, 2] @ self.W_s, self.OutputDist(curr_repr[:, 1])
+        return R, S, A
 #Used in discrete action space - to do for later implementations for discrete action spaces
 class OutputDistDisc(transformer_improved.OutputLayer):
     def forward(self, x):
@@ -217,9 +220,9 @@ class ODTTransformer(transformer_improved.Transformer):
 #High-level class implementing the ODT-algorithm using multiple other classes to enable rl training
 class ODT:
     #As a GPT-Architecture is used, we 
-    def __init__(self, d_input: int, d_output: int, d_model: int, n_head: int, dim_ann: int, dec_layers: int, context_length: int, gamma: float, lr: float, env):
+    def __init__(self, d_input: int, d_output: int, d_model: int, n_head: int, dim_ann: int, dec_layers: int, context_length: int, gamma: float, lr: float, env, action_range, temperature, target_entropy):
         #Initializes the function approximator in this type of task
-        self.transformer = transformer_improved.Transformer(d_input, d_output, d_model, n_head, dim_ann, ODTEmb, 0, dec_layers, OutputDist, context_length)
+        self.transformer = transformer_improved.ODTTransformer(d_input, d_output, d_model, n_head, dim_ann, ODTEmb, 0, dec_layers, OutputDist, context_length)
 
         self.ReplayBuffer = ReplayBuffer(context_length, gamma)
 
@@ -239,19 +242,26 @@ class ODT:
         is_terminated: 
         """
         self.env = env
+        #Used as the "second variable" in optimizing the entropy of the produced output distributions
+        self.log_temp = torch.tensor(temperature)
+        self.log_temp.requires_grad = True
+        self.target_entropy = target_entropy
+    
+    def get_temperature(self):
+        return self.log_temp.exp()
 
 
     #Optimizing the model according to the replays currently found in the replay-buffer
     def train(self, iterations, lr, batch_size):
         #Retrieving data from replay buffer, make this be vectorized
-        replays = []
+        R, S, A = [], [], []
         for i in range(batch_size):
-            replays.append(self.ReplayBuffer.retrieve())
+            r, s, a = self.ReplayBuffer.retrieve(self.)
         
         #Getting the prediction for this part of the model
-        output = self.transformer.forward(replays)
-        loss_corr = None
-        loss_entr = None
+        R, S, A = self.transformer.forward(replays[0], )
+        
+        action_targets = self.pad_inputs()
 
         #Performing a gradient step for both losses sequentially
         loss_corr.backward()
