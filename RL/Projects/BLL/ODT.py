@@ -5,6 +5,8 @@
 from typing import Type
 import transformer_improved
 import torch
+from torch import distributions as pyd
+import math
 from copy import deepcopy
 import random
 
@@ -31,41 +33,130 @@ class ReplayBuffer:
             return self.g[chosen_traj_index], self.s[chosen_traj_index], self.a[chosen_traj_index]
     
 
-    def hindsight_return_labeling(self, traj_list):
+    def hindsight_return_labeling(self, R):
         #Making a deep-copy as to mitigate external errors in reuse trajectories
         traj_list = deepcopy(traj_list)
         #Updating trajectory return-to-go as discounted sum in hindsight return labeling in monte-carlo fashion
         for j in range(len(traj_list)):
-            for i in range(1, len(traj_list[j]) + 1):
+            for i in range(1, traj_list[j].shape[0] + 1):
                 if i != 1:
-                    traj_list[j][-i][0] += self.gamma * traj_list[j][-(i - 1)][0]
+                    traj_list[j][-i, 0] += self.gamma * traj_list[j][-(i - 1), 0]
         return traj_list
 
     #Inputs a list of lists for r, s and a (e.g. R = [[1, 1, 1], [2, 3, 4], [5, 43, 5]], A = [[tensor_1, ...], [tensor_1, ...], [tensor_1, ...]])
     def add_offline(self, R, S, A):
-        traj_list = self.hindsight_return_labeling(traj_list)
-        #Adding augmented trajectories to saved 
-        self.content += traj_list
+        self.a.append(A)
+        self.g.append(self.hindsight_return_labeling(R))
+        self.s.append(S)
 
-        #Sorting the list and deleting 'over-the-top' elements
-        self.content.sort(key = lambda trajectory: trajectory[0][0])
+        #Sorting the list and deleting 'over-the-top' elements, done according to the first element of the r-Tensors 
+        self.a, self.g, self.s = zip(*zip(self.a, self.g, self.s).sort(key = lambda triple_trajectories: float(triple_trajectories[1][0, :])))
         if len(self.content) > self.max_length:
-            self.content[-(len(self.content) - self.max_length):] = []
+            self.a[-(len(self.a) - self.max_length):] = []
+            self.g[-(len(self.g) - self.max_length):] = []
+            self.s[-(len(self.s) - self.max_length):] = []
         
+    #Assumes input lists for R, S and A
     def add_online(self, R, S, A):
-        self.content.append(self.hindsight_return_labeling(traj))
-        if len(self.content) > self.max_length:
-            self.content.pop(0)
+        self.a.append(A)
+        self.g.append(self.hindsight_return_labeling(R))
+        self.s.append(S)
+        if len(self.a) > self.max_length:
+            self.a.pop(0)
+            self.g.pop(0)
+            self.s.pop(0)
 
-#Used in continuous action spaces
-class OutputDist(transformer_improved.OutputLayer):
+#Used in continuous action spaces, where we just predict an output sequence
+            
+#------------------------------- Directly taken from Zheng et al, 2022 and the original Online Decision Transformer Paper -----------------
+class TanhTransform(pyd.transforms.Transform):
+    domain = pyd.constraints.real
+    codomain = pyd.constraints.interval(-1.0, 1.0)
+    bijective = True
+    sign = +1
+
+    def __init__(self, cache_size=1):
+        super().__init__(cache_size=cache_size)
+
+    @staticmethod
+    def atanh(x):
+        return 0.5 * (x.log1p() - (-x).log1p())
+
+    def __eq__(self, other):
+        return isinstance(other, TanhTransform)
+
+    def _call(self, x):
+        return x.tanh()
+
+    def _inverse(self, y):
+        # We do not clamp to the boundary here as it may degrade the performance of certain algorithms.
+        # one should use `cache_size=1` instead
+        return self.atanh(y)
+
+    def log_abs_det_jacobian(self, x, y):
+        # We use a formula that is more numerically stable, see details in the following link
+        # https://github.com/tensorflow/probability/commit/ef6bb176e0ebd1cf6e25c6b5cecdd2428c22963f#diff-e120f70e92e6741bca649f04fcd907b7
+        return 2.0 * (math.log(2.0) - x - F.softplus(-2.0 * x))
+
+class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
+    """
+    Squashed Normal Distribution(s)
+
+    If loc/std is of size (batch_size, sequence length, d),
+    this returns batch_size * sequence length * d
+    independent squashed univariate normal distributions.
+    """
+
+    def __init__(self, loc, std):
+        self.loc = loc
+        self.std = std
+        self.base_dist = pyd.Normal(loc, std)
+
+        transforms = [TanhTransform()]
+        super().__init__(self.base_dist, transforms)
+
+    @property
+    def mean(self):
+        mu = self.loc
+        for tr in self.transforms:
+            mu = tr(mu)
+        return mu
+
+    def entropy(self, N=1):
+        # sample from the distribution and then compute
+        # the empirical entropy:
+        x = self.rsample((N,))
+        log_p = self.log_prob(x)
+
+        # log_p: (batch_size, context_len, action_dim),
+        return -log_p.mean(axis=0).sum(axis=2)
+
+    def log_likelihood(self, x):
+        # log_prob(x): (batch_size, context_len, action_dim)
+        # sum up along the action dimensions
+        # Return tensor shape: (batch_size, context_len)
+        return self.log_prob(x).sum(axis=2)
+# ------------------------------------------------------------------------------------------------------------------------------------------
+
+class OutputDist(torch.nn.Module):
+    def __init__(self, model_dim, dim_a, log_std_bounds = [-5.0, 2.0]) -> None:
+        super().__init__()
+        self.W_mu = torch.nn.Parameter(torch.rand(model_dim, dim_a))
+        self.W_std = torch.nn.Parameter(torch.rand(model_dim, dim_a))
+        self.log_std_bounds = log_std_bounds
+
+    def forward(self, x):
+        mu, std = x @ self.W_mu, x @ self.W_std
+        log_std = (self.log_std_bounds[0] + 0.5 * (self.log_std_bounds[1] - self.log_std_bounds[0]) * (std + 1)).exp()
+        return SquashedNormal(mu, log_std)
+
+#Used in discrete action space - to do for later implementations for discrete action spaces
+class OutputDistDisc(transformer_improved.OutputLayer):
     def forward(self, x):
         return 
-
-#Used in discrete action spaces
     
 #Embedding for the three inputs, used right after having split them off
-class ODTEmb(transformer_improved.EmbeddingLayer):
+class ODTEmb(torch.nn.Module):
     def __init__(self, d_state, d_action, d_model):
         self.WR = torch.nn.Parameter(torch.rand(1, d_model)) # Embedding matrix for the rewards
         self.WS = torch.nn.Parameter(torch.rand(d_state, d_model)) # Embedding matrix for the rewards
@@ -85,13 +176,14 @@ class EmptyEmb(transformer_improved):
 #Inheriting from the improved transformer to properly process an input-sequence before passing it onto the regular model, assumes decoder-only architecture
 class ODTTransformer(transformer_improved.Transformer):
     def __init__(self, d_output: int, d_model: int, n_head: int, dim_ann: int, dec_layers: int, max_seq_length: int, d_state: int, d_action: int):
-        self.ODTEmb = ODTEmb(d_state, d_action, d_model)
         super().__init__(0, d_output, d_model, n_head, dim_ann, EmptyEmb, 0, dec_layers, OutputDist, max_seq_length)
+        self.ODTEmb = ODTEmb(d_state, d_action, d_model)
 
     def forward(self, R, S, A, dropout=0):
         R, S, A = self.pad_inputs(R), self.pad_inputs(S), self.pad_inputs(A)
         output_seq = ODTEmb(R, S, A)
-        return super().forward(None, output_seq, dropout) #No input X due to decoder-only (doesnt call it anyway)
+        curr_repr = super().forward(None, output_seq, dropout) #No input X due to decoder-only (doesnt call it anyway)
+        #Now, we 
 
 
 #High-level class implementing the ODT-algorithm using multiple other classes to enable rl training
