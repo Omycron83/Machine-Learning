@@ -257,7 +257,7 @@ def test_transformer():
     data = torch.rand(50, 3, 1000)
     labels = torch.rand(1, 1000)
     prev_outputs = torch.rand(10, 1, 1000)
-    x = Transformer(3, 1, 8, 1, 8, LinearEmbedding, 1, 1, LinearOutput)
+    x = Transformer(3, 1, 128, 1, 8, LinearEmbedding, 1, 1, LinearOutput)
     num = 0
     optim = torch.optim.Adam(x.parameters(), lr=0.0001) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
     loss_func = nn.MSELoss()
@@ -268,7 +268,7 @@ def test_transformer():
             loss.backward()
             optim.step()
             if i % 1000 == 0:
-                print(float(loss), loss)
+                print(float(loss))
     for i in x.parameters():
         print(i)
 
