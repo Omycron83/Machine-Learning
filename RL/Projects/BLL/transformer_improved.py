@@ -32,10 +32,11 @@ def dropout_func(x, dropout):
     return (x * dropout_mask) / (1-dropout)
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, h, d_model):
+    def __init__(self, h, d_model, has_enc = False):
         super(MultiHeadAttention, self).__init__()
         self.h = h
         self.d_k = d_model // h #Can be chosen otherwise
+        self.has_enc = has_enc
         #Output matrix processing the concatenated attention heads
         self.WO = Parameter(torch.rand(self.d_k * h, d_model))
 
@@ -52,22 +53,30 @@ class MultiHeadAttention(nn.Module):
     def attention(self, Q, K, V, dropout = 0, mask_indices = None):
         padding_mask = torch.zeros(V.shape[0], Q.shape[1], K.shape[1])
         if mask_indices != None:
-            padding_mask[torch.arange(V.shape[0]).unsqueeze(1), mask_indices, :] = -1e+19
-            padding_mask[torch.arange(V.shape[0]).unsqueeze(1), :, mask_indices] = -1e+19
+            for i in range(V.shape[0]):   #Really dont want to use for-loops, but hey - for the masking
+                padding_mask[i, mask_indices[i], :] = -1e+19
+                padding_mask[i, :, mask_indices[i]] = -1e+19
         return dropout_func(nn.functional.softmax(((Q @ K.mT + padding_mask)*(1 / math.sqrt(self.d_k))), dim=1), dropout) @ V
     
     #No different from the regular attention mechanism, but in the way masking of padded values is done (so that values )
     def attention_enc_dec(self, Q, K, V, dropout = 0, input_mask_indices = None, output_mask_indices = None):
         padding_mask = torch.zeros(V.shape[0], Q.shape[1], K.shape[1])
         if input_mask_indices != None:
-            padding_mask[torch.arange(V.shape[0]).unsqueeze(1), :, input_mask_indices] = -1e+19
+            for i in range(V.shape[0]):
+                padding_mask[i, :, input_mask_indices[i]] = -1e+19
         if output_mask_indices != None:
-            padding_mask[torch.arange(V.shape[0]).unsqueeze(1), output_mask_indices, :] = -1e+19
-        return dropout_func(nn.functional.softmax(((Q @ K.t() + padding_mask)*(1 / math.sqrt(self.d_k))), dim=1), dropout) @ V
+            for i in range(V.shape[0]):
+                padding_mask[i, output_mask_indices[i], :] = -1e+19
+
+        return dropout_func(nn.functional.softmax(((Q @ K.mT + padding_mask)*(1 / math.sqrt(self.d_k))), dim=1), dropout) @ V
     
-    def forward(self, XQ, XK, XV, dropout = 0, mask_indices = None):
-        #Encoder has the same, decoder different inputs for the attention evaluation (from which Q, K, V are constructed)
-        heads = [self.attention(XQ @ self.WQ_comb @ self.WQ[i], XK @ self.WK_comb @ self.WK[i], XV @ self.WV_comb @ self.WV[i], dropout, mask_indices) for i in range(self.h)]
+    def forward(self, XQ, XK, XV, dropout = 0, mask_indices = None, mask_output_indices = None):
+        if self.has_enc == False:
+            #Encoder has the same, decoder different inputs for the attention evaluation (from which Q, K, V are constructed)
+            heads = [self.attention(XQ @ self.WQ_comb @ self.WQ[i], XK @ self.WK_comb @ self.WK[i], XV @ self.WV_comb @ self.WV[i], dropout, mask_indices) for i in range(self.h)]
+        else:
+            heads = [self.attention_enc_dec(XQ @ self.WQ_comb @ self.WQ[i], XK @ self.WK_comb @ self.WK[i], XV @ self.WV_comb @ self.WV[i], dropout, mask_indices, mask_output_indices) for i in range(self.h)]
+
         return torch.cat(heads, dim = 1) @ self.WO
 
 class MaskedMultiHeadAttention(MultiHeadAttention):
@@ -77,8 +86,9 @@ class MaskedMultiHeadAttention(MultiHeadAttention):
         padding_mask = torch.zeros(V.shape[0], Q.shape[1], K.shape[1])
         #Padding-mask for the values in the decoder 
         if mask_indices != None:
-            padding_mask[torch.arange(V.shape[0]).unsqueeze(1), mask_indices, :] = -1e+19
-            padding_mask[torch.arange(V.shape[0]).unsqueeze(1), :, mask_indices] = -1e+19
+            for i in range(V.shape[0]):
+                padding_mask[i, mask_indices[i], :] = -1e+19
+                padding_mask[i, :, mask_indices[i]] = -1e+19
         mask = torch.minimum(causal_mask, padding_mask) #If a position is masked due to either one, we mask it in the combined mask
         return dropout_func(nn.functional.softmax((Q @ K.mT) + mask, dim=1)*(1 / math.sqrt(self.d_k)), dropout) @ V
 
@@ -141,12 +151,12 @@ class DecoderLayer(nn.Module):
         self.has_encoder = has_encoder
         self.attention = MaskedMultiHeadAttention(n_head, d_model)
         if has_encoder:
-            self.enc_attention = MultiHeadAttention(n_head, d_model)
+            self.enc_attention = MultiHeadAttention(n_head, d_model, has_enc=True)
         self.ann = ANNLayer(dim_ann, d_model)
 
     def forward(self, x, enc_val = None, dropout = 0, mask_indices_input = None, mask_indices_output = None):
         norm_val = layerNorm(x)
-        attended_val = self.attention(norm_val, norm_val ,norm_val, mask_indices_output, mask_indices_input)
+        attended_val = self.attention(norm_val, norm_val ,norm_val, dropout = dropout, mask_indices = mask_indices_input)
         attended_res = dropout_func(attended_val, dropout) + norm_val
         
         if self.has_encoder:
@@ -216,7 +226,7 @@ class Transformer(nn.Module):
             curr_repr = postionalEncoding(curr_repr)
             #Encoder-Block
             for i in range(self.enc_layers):
-                curr_repr = self.encoder[i](curr_repr, dropout, input_mask_rows)
+                curr_repr = self.encoder[i](curr_repr, dropout, mask_indices = input_mask_rows)
 
         #Decoder-Part:
         if self.dec_layers > 0:
@@ -229,12 +239,13 @@ class Transformer(nn.Module):
             curr_repr = postionalEncoding(curr_repr)
             #Decoder-Block
             for i in range(self.dec_layers):
-                curr_repr = self.decoder[i](curr_repr, enc_repr, dropout, input_mask_rows, output_mask_rows)
+                curr_repr = self.decoder[i](curr_repr, enc_repr, dropout = dropout, mask_indices_input = input_mask_rows, mask_indices_output = output_mask_rows)
         #Output-Function is applied to the d_seq \times d_model matrix to a d_seq \times d_output model, with the last vector being returned as the final output
-        output = self.output_layer(curr_repr)[:, 1:, :]
-        output[torch.arange(output.shape[0]).unsqueeze(1), output_mask_rows, :] = 0
+        output = self.output_layer(curr_repr)
+        for i in range(output.shape[0]):
+            output[i, output_mask_rows[i], :] = 0
         #Return everything but the arbitrarily formed start-of-sequence-token and mask the padding values to zero so that they have no error
-        return output
+        return output[:, 1:, :]
     
     #Assumes a list of tensor-inputs of variable size d_seq x d_input/output and trims them down or pads them w/ zeros to conform with the sequence length for encoder and decoder
     def pad_inputs(self, inputs, outputs):
@@ -333,7 +344,7 @@ def test_transformer():
     outputs = [torch.rand((i+1)*2, 1) for i in range(3)]
     x = Transformer(3, 1, 8, 1, 8, LinearEmbedding, 1, 1, LinearOutput, max_seq_length=5)
     data, outputs = x.pad_inputs(data, outputs)
-    optim = torch.optim.Adam(x.parameters(), lr=0.01) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
+    optim = torch.optim.Adam(x.parameters(), lr=0.0001) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
     loss_func = nn.MSELoss()
     for j in range(5000):
         prediction = x.forward(data, outputs, dropout = 0.01)
@@ -341,7 +352,7 @@ def test_transformer():
         loss.backward()
         optim.step()
         if j % 10 == 0:
-            print(float(loss), loss)
+            print(float(loss))
     for i in x.parameters():
         print(i)
 
