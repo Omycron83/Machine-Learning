@@ -246,7 +246,7 @@ class Transformer(nn.Module):
         return output[:, 1:, :]
     
     #Assumes a list of tensor-inputs of variable size d_seq x d_input/output and trims them down or pads them w/ zeros to conform with the sequence length for encoder and decoder
-    def pad_inputs(self, inputs, outputs):
+    def pad_inputs(self, inputs):
         #Removing all elements in sequences longer than the max-sequence-length
         for i in range(len(inputs)):
             if inputs[i].shape[0] > self.max_seq_length:
@@ -254,14 +254,8 @@ class Transformer(nn.Module):
         #Padding the last value to the maximum for the inputs
         inputs[-1] = torch.cat([inputs[-1], torch.zeros(self.max_seq_length - inputs[-1].shape[0], inputs[-1].shape[1])], dim = 0)
 
-        for i in range(len(outputs)):
-            if outputs[i].shape[0] > self.max_seq_length:
-                outputs[i] = outputs[i][0:self.max_seq_length]
-        #Padding the last value to the maximum for the outputs
-        outputs[-1] = torch.cat([outputs[-1], torch.zeros(self.max_seq_length - outputs[-1].shape[0], outputs[-1].shape[1])], dim = 0)
-
         #Padding the remaining sequences with length <= max_seq_length to the desired dimensions
-        return torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True), torch.nn.utils.rnn.pad_sequence(outputs,batch_first=True) 
+        return torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True)
     
     #Retrieves the parameters (Wrapper)
     def retrieve_weights(self):
@@ -314,6 +308,7 @@ class NoamOptimizer:
     #For if you want to save the current optimizers progress for later use
     def get_state_dict(self):
         return {key: value for key, value in self.__dict__.items() if key != 'optimizer'}
+
 #"-------------------------------- Unit-Tests ------------------------------------------------"
 def test_pos_encoding():
     pass
@@ -341,7 +336,7 @@ def test_transformer():
     data = [torch.rand(4, 3) for i in range(100)]
     outputs = [torch.rand(4, 1) for i in range(100)]
     x = Transformer(3, 1, 8, 8, 128, LinearEmbedding, 1, 1, LinearOutput, max_seq_length=5)
-    data, outputs = x.pad_inputs(data, outputs)
+    data, outputs = x.pad_inputs(data), x.pad_inputs(outputs)
     optim = torch.optim.Adam(x.parameters(), lr=0.000001) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
     loss_func = nn.MSELoss()
     for j in range(5000):
