@@ -1,10 +1,9 @@
-from typing import Type
-import transformer
+import transformer_improved
 import torch
 from copy import deepcopy
 import random
 
-#A replay buffer 
+#A replay buffer saving trajectories of the form (g_t, s_t, a_t) in a list
 class ReplayBuffer:
     def __init__(self, max_length, gamma) -> None:
         self.max_length = max_length
@@ -40,7 +39,7 @@ class ReplayBuffer:
         #Sorting the list and deleting 'over-the-top' elements
         self.content.sort(key = lambda trajectory: trajectory[0][0])
         if len(self.content) > self.max_length:
-            self.content[-(len(self.content) - self.max_length):] = [1]
+            self.content[-(len(self.content) - self.max_length):] = []
         
     def add_online(self, traj):
         self.content.append(self.hindsight_return_labeling(traj))
