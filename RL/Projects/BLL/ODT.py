@@ -1,9 +1,14 @@
+#Author: Damian Grunert
+#Date: 25-02-2024
+#Content: A custom implementation of the online decision transformer algorithm using pytorch
+
+from typing import Type
 import transformer_improved
 import torch
 from copy import deepcopy
 import random
 
-#A replay buffer saving trajectories of the form (g_t, s_t, a_t) in a list
+#A replay buffer saving trajectories of the form (g_t, s_t, a_t) in a list, where g_t is a scalar and s_t and a_t are torch tensors of 1 x d_s and 1 x d_a, respectively
 class ReplayBuffer:
     def __init__(self, max_length, gamma) -> None:
         self.max_length = max_length
@@ -47,30 +52,55 @@ class ReplayBuffer:
             self.content.pop(0)
 
 #Used in continuous action spaces
-class OutputDist(transformer.OutputLayer):
+class OutputDist(transformer_improved.OutputLayer):
     def forward(self, x):
         return 
 
 #Used in discrete action spaces
-
-
-class ODTEmb(transformer.EmbeddingLayer):
+    
+#Embedding for the three inputs, used right after having split them off
+class ODTEmb(transformer_improved.EmbeddingLayer):
+    def __init__(self, d_state, d_action, d_model):
+        self.WR = torch.rand(1, d_model) # Embedding matrix for the rewards
+        self.WS = torch.rand(d_state, d_model) # Embedding matrix for the rewards
+        self.WA = torch.rand(d_action, d_model) # Embedding matrix for the rewards
     def forward(self, x):
-        return 
+        
+        return torch.cat(None) 
+
+#There is no real mask for the representation formed
+class EmptyEmb(transformer_improved):
+    def forward(self, x):
+        return x
+
+#Inheriting from the improved transformer to properly process an input-sequence before passing it onto the regular model, assumes decoder-only architecture
+class ODTTransformer(transformer_improved.Transformer):
+    def __init__(self, d_output: int, d_model: int, n_head: int, dim_ann: int, dec_layers: int, max_seq_length: int, d_state: int, d_action: int):
+        self.ODTEmb = ODTEmb(d_state, d_action, d_model)
+        super().__init__(0, d_output, d_model, n_head, dim_ann, EmptyEmb, 0, dec_layers, OutputDist, max_seq_length)
+
+    def forward(self, output_seq, dropout=0):
+        output_seq = ODTEmb(output_seq)
+        output = self.pad_inputs([], output_seq)[1]
+        return super().forward(None, output, dropout) #No input X due to decoder-only (doesnt call it anyway)
+
 
 #High-level class implementing the ODT-algorithm using multiple other classes to enable rl training
 class ODT:
     #As a GPT-Architecture is used, we 
     def __init__(self, d_input: int, d_output: int, d_model: int, n_head: int, dim_ann: int, dec_layers: int, context_length: int, gamma: float, lr: float, env):
         #Initializes the function approximator in this type of task
-        self.transformer = transformer.Transformer(d_input, d_output, d_model, n_head, dim_ann, ODTEmb, 0, dec_layers, OutputDist)
+        self.transformer = transformer_improved.Transformer(d_input, d_output, d_model, n_head, dim_ann, ODTEmb, 0, dec_layers, OutputDist, context_length)
 
         self.ReplayBuffer = ReplayBuffer(context_length, gamma)
 
-        #Warm-up not needed, but might try it out later on
-        self.AdamW = torch.optim.AdamW(lr = lr)
+        #Warm-up not needed due to LN-setup, but might try it out later
+        #Optimizer for the correctness
+        self.AdamWCorr = torch.optim.AdamW(lr = lr)
+        #Optimizer for the entropy in the distributionw
+        self.AdamWEntr = torch.optim.AdamW(lr = lr)
 
-        #The current online-trajectory being encountered. This 
+        #The current online-trajectory being encountered. This is a temporary value.
         self.current_traj = []
 
         #The environment acted on, has to implement:
@@ -82,23 +112,27 @@ class ODT:
         self.env = env
 
 
-    #Optimization algorithm: AdamW
+    #Optimizing the model according to the replays currently found in the replay-buffer
     def train(self, iterations, lr, batch_size):
         #Retrieving data from replay buffer, make this be vectorized
         replays = []
         for i in range(batch_size):
             replays.append(self.ReplayBuffer.retrieve())
-        replays = torch.cat(replays, dim=2)
-
+        
         #Predicting outputs, getting error and 
         self.AdamW.zero_grad()
         output = self.transformer.forward(replays)
-        self.
+        loss_
 
+
+    #Performing and logging a step made in an online-finetuning-step
     def env_step(self, current_traj):
-        output = self.transformer.forward(current_traj)
-        
+        action = self.transformer.forward(current_traj)
+        state, reward, terminated = self.env(action)
+        self.current_traj.append((reward, state, action))
+        if terminated:
+            self.ReplayBuffer.add_online(self.current_traj)
+            self.current_traj = []
 
     def add_data(self, traj_list):
         self.ReplayBuffer.add_offline(traj_list)
-        
