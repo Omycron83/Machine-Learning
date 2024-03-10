@@ -57,8 +57,8 @@ class ANNLayer(nn.Module):
         super(ANNLayer, self).__init__()
         self.d_ff = d_ff
         self.d_model = d_model
-        self.weights_1, self.bias_1 = Parameter(nn.init.kaiming_normal_(torch.empty(d_model, d_ff))), Parameter(nn.init.ones_(torch.empty(d_ff)))
-        self.weights_2, self.bias_2 = Parameter(nn.init.kaiming_normal_(torch.empty(d_ff, d_model))), Parameter(nn.init.ones_(torch.empty(d_model)))
+        self.weights_1, self.bias_1 = Parameter(nn.init.kaiming_normal_(torch.empty(d_model, d_ff))), Parameter(nn.init.zeros_(torch.empty(d_ff)))
+        self.weights_2, self.bias_2 = Parameter(nn.init.kaiming_normal_(torch.empty(d_ff, d_model))), Parameter(nn.init.zeros_(torch.empty(d_model)))
     
     def forward(self, X):
         return nn.functional.relu(X @ self.weights_1 + self.bias_1) @ self.weights_2 + self.bias_2
