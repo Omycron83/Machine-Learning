@@ -1,7 +1,7 @@
 #Final model parameters were:
-lin_opt = [3, 13.728]
-nn_opt = [2689, 0.0, 53, 0.1, 15.065]
-xgboost_opt = [0.0, 0.049715, 7, 906, 0.77577, 1, 0.0, 0.0]
+lin_opt = [3, 0.03146046251720122]
+nn_opt = [1668, 0.0, 33, 0.002580686067199954, 0.0]
+xgboost_opt = [0.0, 0.19032012543987745, 3, 1100, 1.0, 1, 0.0, 5.0]
 
 import xgboost
 import NN
@@ -111,7 +111,7 @@ def nn_train(features, labels):
     features_train = (features - norm[0]) / norm[1]
     dataset = TensorDataset(torch.from_numpy(features_train), torch.from_numpy(labels))
     dataloader = DataLoader(dataset, batch_size=int(nn_opt[2]), shuffle=True)
-    for i in range(30):
+    for i in range(300):
         for id_batch, (x_batch, y_batch) in enumerate(dataloader):
             optimizer.zero_grad()
             y_batch_pred = nn(x_batch)
@@ -191,12 +191,14 @@ plt.show()
 print("Starting saving linear:")
 lin_model = LinRegr.polynomial_regression(train_data.shape[1], _lambda = lin_opt[1], degree = lin_opt[0])
 lin_model.ridge_normal_eq(train_data, labels)
+print(NN.mape(lin_model.predict(train_data), labels))
 pred_linregr = lin_model.predict(data_unknown)
 np.savetxt(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\LinRegr.csv", np.hstack((data_id.reshape(-1, 1),  pred_linregr, data_stw.reshape(-1, 1))), delimiter=",")
 
 print("Starting saving nn:")
 nn_train(train_data, labels)
 pred_nn = nn(torch.from_numpy((data_unknown - norm[0]) / norm[1])).detach().numpy()
+print(NN.mape(nn(torch.from_numpy((train_data - norm[0]) / norm[1])).detach().numpy(), labels))
 plt.scatter(data_stw, pred_nn)
 plt.show()
 np.savetxt(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\NN.csv", np.hstack((data_id.reshape(-1, 1), pred_nn, data_stw.reshape(-1, 1))), delimiter=",")
@@ -204,4 +206,5 @@ np.savetxt(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\NN.csv
 print("Starting saving xgboost:")
 train(train_data, labels)
 pred_xgboost = xgboost_reg.predict(data_unknown)
+print(NN.mape(xgboost_reg.predict(train_data), labels))
 np.savetxt(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\XGBoost.csv", np.hstack((data_id.reshape(-1, 1), pred_xgboost.reshape(-1, 1), data_stw.reshape(-1, 1))), delimiter=",")

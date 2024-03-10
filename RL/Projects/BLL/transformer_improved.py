@@ -8,6 +8,9 @@
 # - GeLU activation function ---
 # - The DropOut-Mechanism for the residuals, ANN hidden layer and attention sublayer, however not the embedding ---
 # - Removing the bias in feedforward-layers ---
+# - Adding a bias in the WO-Weight
+# - Xavier-Initialization for the Weight-Matrices (so that they are initilaized with unit standard deviation) and Kaiming-Initialization for the ANN-Matrices
+# - Initialization of the bias weights to be zero instead of one
 # - QoL: Being able to save and retrieve the parameters of the model ---
 
 import torch
@@ -38,17 +41,18 @@ class MultiHeadAttention(nn.Module):
         self.d_k = d_model // h #Can be chosen otherwise
         self.has_enc = has_enc
         #Output matrix processing the concatenated attention heads
-        self.WO = Parameter(torch.rand(self.d_k * h, d_model))
+        self.WO = Parameter(nn.init.xavier_uniform_(torch.empty(self.d_k * h, d_model)))
+        self.WO_bias = Parameter(nn.init.zeros_(torch.empty(d_model)))
 
         #Learnt, general parameters to yield Q, K and V from an Input for all Attention Heads combined
-        self.WQ_comb = Parameter(torch.rand(d_model, self.d_k))
-        self.WK_comb = Parameter(torch.rand(d_model, self.d_k))
-        self.WV_comb = Parameter(torch.rand(d_model, self.d_k))
+        self.WQ_comb = Parameter(nn.init.xavier_uniform_(torch.empty(d_model, self.d_k)))
+        self.WK_comb = Parameter(nn.init.xavier_uniform_(torch.empty(d_model, self.d_k)))
+        self.WV_comb = Parameter(nn.init.xavier_uniform_(torch.empty(d_model, self.d_k)))
 
         #List of weight matrices for each attention head
-        self.WQ = nn.ParameterList(Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h))
-        self.WK = nn.ParameterList(Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h))
-        self.WV = nn.ParameterList(Parameter(torch.rand(self.d_k, self.d_k)) for i in range(h))
+        self.WQ = nn.ParameterList(Parameter(nn.init.xavier_uniform_(torch.empty(self.d_k, self.d_k))) for i in range(h))
+        self.WK = nn.ParameterList(Parameter(nn.init.xavier_uniform_(torch.empty(self.d_k, self.d_k))) for i in range(h))
+        self.WV = nn.ParameterList(Parameter(nn.init.xavier_uniform_(torch.empty(self.d_k, self.d_k))) for i in range(h))
         
     def attention(self, Q, K, V, dropout = 0, mask_indices = None):
         padding_mask = torch.zeros(V.shape[0], Q.shape[1], K.shape[1])
@@ -77,7 +81,7 @@ class MultiHeadAttention(nn.Module):
         else:
             heads = [self.attention_enc_dec(XQ @ self.WQ_comb @ self.WQ[i], XK @ self.WK_comb @ self.WK[i], XV @ self.WV_comb @ self.WV[i], dropout, mask_indices, mask_output_indices) for i in range(self.h)]
 
-        return torch.cat(heads, dim = 2) @ self.WO
+        return torch.cat(heads, dim = 2) @ self.WO + self.WO_bias
 
 class MaskedMultiHeadAttention(MultiHeadAttention):
     def attention(self, Q, K, V, dropout = 0, mask_indices = None):
@@ -335,11 +339,11 @@ def test_decoder():
 def test_transformer():
     data = [torch.rand(4, 3) for i in range(100)]
     outputs = [torch.rand(4, 1) for i in range(100)]
-    x = Transformer(3, 1, 8, 8, 128, LinearEmbedding, 1, 1, LinearOutput, max_seq_length=5)
+    x = Transformer(3, 1, 2, 1, 2, LinearEmbedding, 1, 1, LinearOutput, max_seq_length=5)
     data, outputs = x.pad_inputs(data), x.pad_inputs(outputs)
-    optim = torch.optim.Adam(x.parameters(), lr=0.000001) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
+    optim = torch.optim.Adam(x.parameters(), lr=0.00004) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
     loss_func = nn.MSELoss()
-    for j in range(5000):
+    for j in range(10000):
         prediction = x.forward(data, outputs, dropout = 0.0)
         loss = loss_func(prediction, outputs)
         loss.backward()

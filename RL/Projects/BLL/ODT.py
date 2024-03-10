@@ -149,6 +149,13 @@ def loss_fn(a_hat_dist, a, entropy_reg):
     return loss, -log_likelihood, entropy
 # ------------------------------------------------------------------------------------------------------------------------------------------
 
+#Defines the error between 
+def action_loss():
+    pass
+
+def entropy_loss():
+    pass 
+
 class OutputDist(torch.nn.Module):
     def __init__(self, model_dim, dim_a, log_std_bounds = [-5.0, 2.0]) -> None:
         super().__init__()
@@ -172,6 +179,7 @@ class OutputLayer(torch.nn.Module):
         curr_repr = curr_repr.reshape(curr_repr.shape[0], curr_repr.shape[1] // 3, 3, self.model_dim).permute(0, 2, 1, 3)
         R, S, A = curr_repr[:, 2] @ self.W_r, curr_repr[:, 2] @ self.W_s, self.OutputDist(curr_repr[:, 1])
         return R, S, A
+
 #Used in discrete action space - to do for later implementations for discrete action spaces
 class OutputDistDisc(transformer_improved.OutputLayer):
     def forward(self, x):
@@ -226,10 +234,12 @@ class ODT:
 
         self.ReplayBuffer = ReplayBuffer(context_length, gamma)
 
+        self.action_range = action_range
+
         #Warm-up not needed due to LN-setup, but might try it out later
         #Optimizer for the correctness
         self.AdamWCorr = torch.optim.AdamW(lr = lr)
-        #Optimizer for the entropy in the distributionw
+        #Optimizer for the entropy in the distribution
         self.AdamWEntr = torch.optim.AdamW(lr = lr)
 
         #The current online-trajectory being encountered, formed by three lists containing R, S and A respectively. This is a temporary value.
@@ -242,6 +252,7 @@ class ODT:
         is_terminated: 
         """
         self.env = env
+        
         #Used as the "second variable" in optimizing the entropy of the produced output distributions
         self.log_temp = torch.tensor(temperature)
         self.log_temp.requires_grad = True
