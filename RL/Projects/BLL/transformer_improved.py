@@ -213,7 +213,7 @@ class Transformer(nn.Module):
         return [torch.nonzero(mask, as_tuple=False)[:, 0].tolist() for mask in zero_rows_mask]
 
     #Assuming a batch input of dimensions batch_size x inp_seq_len x d_input and batchsize x out_seq_len x d_output respectively, predicts all values for the sequence (may be used to predict the last or all sequence values)
-    def forward(self, X, output, dropout = 0):
+    def forward(self, X, output, dropout = 0, add_token = True):
         #Encoder-Part:
         if self.enc_layers > 0:
             #Data-preprocessing: figuring out the binary mask for both input and output by the zero-padding-vector by saving the amount of zero vectors in batchsize x 1-array
@@ -228,8 +228,9 @@ class Transformer(nn.Module):
 
         #Decoder-Part:
         if self.dec_layers > 0:
-            #Begin of sequence vector, arbitrarily choosen to be the trivial one-vector
-            output = torch.cat([torch.ones(output.shape[0], 1, output.shape[2]), output], dim = 1)
+            if add_token:
+                #Begin of sequence vector, arbitrarily choosen to be the trivial one-vector
+                output = torch.cat([torch.ones(output.shape[0], 1, output.shape[2]), output], dim = 1)
             #Mask indices for the output sequence
             output_mask_rows = self.masked_rows_indices(output)
             #Re-assigning the (existing) encoder values and current input values, using embedding
@@ -258,7 +259,7 @@ class Transformer(nn.Module):
         #Padding the last value to the maximum for the inputs
         inputs[-1] = torch.cat([inputs[-1], torch.zeros(self.max_seq_length - inputs[-1].shape[0], inputs[-1].shape[1])], dim = 0)
 
-        #Padding the remaining sequences with length <= max_seq_length to the desired dimensions
+        #Padding the remaining sequences with length <= max_seq_length to the desired dimensions, outputs a batch x seq x d torch tensor
         return torch.nn.utils.rnn.pad_sequence(inputs, batch_first=True)
     
     #Retrieves the parameters (Wrapper)
@@ -341,7 +342,7 @@ def test_transformer():
     outputs = [torch.rand(4, 1) for i in range(100)]
     x = Transformer(3, 1, 2, 1, 2, LinearEmbedding, 1, 1, LinearOutput, max_seq_length=5)
     data, outputs = x.pad_inputs(data), x.pad_inputs(outputs)
-    optim = torch.optim.Adam(x.parameters(), lr=0.00004) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
+    optim = torch.optim.Adam(x.parameters(), lr=0.000075) #NoamOptimizer(1000, x.d_model, torch.optim.Adam(x.parameters(), lr=0))
     loss_func = nn.MSELoss()
     for j in range(10000):
         prediction = x.forward(data, outputs, dropout = 0.0)
