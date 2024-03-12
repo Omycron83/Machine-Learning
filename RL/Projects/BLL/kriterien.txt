@@ -1,0 +1,9 @@
+Einfachheit des Parametertunings
+Planungsmoeglichkeit MLP vs Sequenz 
+Computionale Effizienz bez. Zeitkomplexitaet und Runtime 
+Effektivitaet auf Benchmarks
+Sample efficiency
+Applicability to other forms (continuous action spaces)
+
+
+Erklären Rechengraph (Torch)
