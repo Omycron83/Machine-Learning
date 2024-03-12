@@ -10,6 +10,8 @@ import math
 from copy import deepcopy
 import random
 import pickle
+import gym
+import numpy as np
 
 #A replay buffer saving trajectories of the form (g_t, s_t, a_t) in three seperate lists, each containing lists of tensors of shape 1 x d_g/s/a
 #This enables us to treat each of them as a seperate sequence for now, and then link them during the ODT implementation
@@ -279,7 +281,11 @@ class ODT:
     """
 
     def sample_traj(self, target_rtg, envs):
+        # Essentially think of the things in environments as different batches being processed at the same time
         has_finished = [False for i in range(len(envs))]
+
+        num_envs = envs.num_envs
+        state = envs.reset()
 
         states = [[i.reset()] for i in envs]
         rgs = [[torch.tensor(target_rtg).reshape(1, 1)] for i in range(len(envs))]
@@ -289,7 +295,7 @@ class ODT:
         #Rewards are logged seperately latr tm
         rewards = [[] for i in envs]
 
-        episode_return = 0
+        episode_return = [0 for i in range(len(envs))]
         while True:
             #Makes them to 
             R, S, A = self.pad_inputs(rgs), self.pad_inputs(states), self.pad_inputs(actions)
@@ -297,17 +303,23 @@ class ODT:
             #Getting the prediction for the current rtg, state and action sequence for 0-action
             R_pred, S_pred, A_pred = self.transformer.forward(R, S, A, add_token=False)
 
-            action = A_pred[1, -1, :].sample().reshape(len(envs), )
+            action = A_pred[:, -1, :].reshape(len(envs), -1, self.d_action)[:, -1]
             action.clamp(*self.action_range)
 
-            for env in envs:
-                pass
+            for i in range(len(envs)):
+                state, reward, terminated = envs[i].step(action)
+
+                if terminated:
+
+                if 
+
+
                         
             #Appending the next return-to-go to the current return-to-go-save using g_t+1 = (g_t - r_t) / gamma (which makes sense, as g_t-1 = gamma * g_t + r_t-1 <=> g_t = (g_t-1 + r_t-1) / gamma
             
 
             episode_return += reward
-            if terminated:
+            if not False in has_finished:
                 break
 
         self.ReplayBuffer.add_online(self.current_traj[0], self.current_traj[1], self.current_traj[2])
@@ -326,17 +338,26 @@ def unit_test():
     actions = [torch.rand(50, 2) for i in range(100)]
     states = [torch.rand(50, 4) for i in range(100)]
     rewards = [torch.rand(50, 1) for i in range(100)]
-    class DebugEnv:
-        def __init__(self) -> None:
-            self.opt_action = torch.ones(1, 4)
-        def reset(self):
-            return torch.zeros(1, 4)
-        def step(self, action):
-            return torch.random(1, 4), - torch.cdist(self.opt_action, action).reshape(1, 1)
-        
     OnlineDecisionTransformer = ODT(4, 2, 8, 1, 124, 2, 10, 5, 1, [-1000, 1000])
     OnlineDecisionTransformer.add_data(rewards, states, actions)
     
+    class DictEnv(gym.Env):
+        def __init__(self):
+            self.observation_space = gym.spaces.Dict({"position": gym.spaces.Box(-1., 1., (3,), np.float32),"velocity": gym.spaces.Box(-1., 1., (2,), np.float32)})
+            self.action_space = gym.spaces.Dict({"fire": gym.spaces.Discrete(2),"jump": gym.spaces.Discrete(2),"acceleration": gym.spaces.Box(-1., 1., (2,), np.float32)})
+            self.max = random.randint(1, 100)
+            self.counter = 0
+
+        def reset(self):
+            self.max = random.randint(1, 100)
+            self.counter = 0
+            return self.observation_space.sample()
+        
+        def step(self, action):
+            observation = self.observation_space.sample()
+            self.counter += 1
+            return (observation, np.linalg.norm(action-observation), self.counter >= self.max, {})
+        
     corr_optim = torch.optim.Adam(OnlineDecisionTransformer.transformer.params())
     entr_optim = torch.optim.Adam([OnlineDecisionTransformer.temperature])
     
@@ -346,7 +367,7 @@ def unit_test():
     
     #Online Finetuning
     for i in range(10):
-        OnlineDecisionTransformer.sample_traj(0, [DebugEnv])
+        OnlineDecisionTransformer.sample_traj(0, [lambda: DictEnv()] * 3)
 
     OnlineDecisionTransformer.train(100, 10, corr_optim, entr_optim)
     
