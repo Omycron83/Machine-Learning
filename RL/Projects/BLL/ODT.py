@@ -9,8 +9,9 @@ from torch import distributions as pyd
 import math
 from copy import deepcopy
 import random
+import pickle
 
-#A replay buffer saving trajectories of the form (g_t, s_t, a_t) in three seperate lists, each containing tensors of len_traj x d_g/s/a
+#A replay buffer saving trajectories of the form (g_t, s_t, a_t) in three seperate lists, each containing lists of tensors of shape 1 x d_g/s/a
 #This enables us to treat each of them as a seperate sequence for now, and then link them during the ODT implementation
 #Where g_t is a scalar and s_t and a_t are torch tensors of 1 x d_s and 1 x d_a fixed, respectively
 class ReplayBuffer:
@@ -25,12 +26,12 @@ class ReplayBuffer:
     def retrieve(self, K = None):
         if K == None:
             K = self.max_length
-        traj_lengths = [g.shape[0] for g in self.g]
+        traj_lengths = [len(g) for g in self.g]
         chosen_traj_index = random.choice(list(range(len(self.g))), weights=traj_lengths) #Picks an index proportional to the length of the trajectory at that index
 
-        if self.g[chosen_traj_index].shape[0] > K:
-            slice_index = random.randint(0, self.g[chosen_traj_index].shape[0] - K)
-            return self.g[slice_index:K + slice_index, :], self.s[slice_index:K + slice_index, :], self.a[slice_index:K + slice_index, :]
+        if len(self.g[chosen_traj_index]) > K:
+            slice_index = random.randint(0, len(self.g[chosen_traj_index]) - K)
+            return self.g[chosen_traj_index][slice_index:K + slice_index], self.s[chosen_traj_index][slice_index:K + slice_index], self.a[chosen_traj_index][slice_index:K + slice_index]
         else:
             return self.g[chosen_traj_index], self.s[chosen_traj_index], self.a[chosen_traj_index]
     
@@ -92,9 +93,9 @@ class TanhTransform(pyd.transforms.Transform):
     def _inverse(self, y):
         return self.atanh(y)
 
+    #Apparently, they thought of the fact that:
+    # log(1 - tanh(x)^2) = log(sech(x)^2) = 2*log(sech(x)) = 2 * log(2e^-x / (e^-2x + 1)) = 2* (log(2) - x - softplus(-2x)) did some jacobian shit
     def log_abs_det_jacobian(self, x, y):
-        # We use a formula that is more numerically stable, see details in the following link
-        # https://github.com/tensorflow/probability/commit/ef6bb176e0ebd1cf6e25c6b5cecdd2428c22963f#diff-e120f70e92e6741bca649f04fcd907b7
         return 2.0 * (math.log(2.0) - x - torch.nn.functional.F.softplus(-2.0 * x))
 # ------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -114,7 +115,7 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
     def mean(self):
         return self.transforms[0](self.mean)
         
-    #Samples from the distribution, applies the empirical shannon entropy
+    #Samples from the distribution (once per default), applies the empirical shannon entropy
     def entropy(self, N=1):
         x = self.rsample((N,))
         log_p = self.log_prob(x)
@@ -205,8 +206,9 @@ class ODTTransformer(transformer_improved.Transformer):
     def __init__(self, d_state: int, d_action: int, d_model: int, n_head: int, dim_ann: int, dec_layers: int, max_seq_length: int):
         super().__init__(0, d_model, d_model, n_head, dim_ann, EmptyEmb, 0, dec_layers, EmptyOutput, max_seq_length)
         self.ODTEmb = ODTEmb(d_state, d_action, d_model)
+        self.OutputLayer = OutputLayer(d_model, d_state, d_action)
 
-    def forward(self, R, S, A, dropout=0):
+    def forward(self, R, S, A, dropout=0, add_token = True):
         #Applying the ODT-specific embedding layer
         output_seq = ODTEmb(R, S, A)
 
@@ -215,40 +217,34 @@ class ODTTransformer(transformer_improved.Transformer):
         #I will also for now not infuse additional information about the window-position in the entire trajectory, though I will experiment with that later on
 
         #No input X due to decoder-only (doesnt call it anyway), no adding of token as first token is always provided by the choosen return-to-go (no empty generation)
-        curr_repr = super().forward(None, output_seq, dropout, add_token=False) 
-        R_pred, S_pred, A_pred = OutputDist
+        curr_repr = super().forward(None, output_seq, dropout, add_token)
+        R_pred, S_pred, A_pred = self.OutputLayer(curr_repr)
         return R_pred, S_pred, A_pred
 
 #High-level class implementing the ODT-algorithm using multiple other classes to enable rl training
 class ODT:
     #As a GPT-Architecture is used, we 
-    def __init__(self, d_state: int, d_action: int, d_model: int, n_head: int, dim_ann: int, dec_layers: int, context_length: int, gamma: float, env, action_range, temperature):
+    def __init__(self, d_state: int, d_action: int, d_model: int, n_head: int, dim_ann: int, dec_layers: int, context_length: int, replay_buffer_length: int, gamma: float, action_range, init_temperature = 0.1):
+        self.d_state = d_state
+        self.d_action = d_action
+        self.context_length = context_length
+        self.action_range = action_range
+        self.context_length = context_length
+
         #Initializes the function approximator in this type of task
         self.transformer = ODTTransformer(d_state, d_action, d_model, n_head, dim_ann, ODTEmb, 0, dec_layers, OutputDist, context_length)
 
         #Initializes the replay buffer to facilitate storing, retrieval and hindsight-return-labeling
-        self.ReplayBuffer = ReplayBuffer(context_length, gamma)
-
-        self.action_range = action_range
-        self.context_length = context_length
-
-        #The current online-trajectory being encountered, formed by three lists containing R, S and A respectively. This is a temporary value.
-        self.current_traj = [[], [], []]
-
-        #The environment acted on, has to implement:
-        """
-        env: performs a step in the environment; env.step(action) -> s_t+1, r_t, terminated
-        reset: resets the environment data
-        is_terminated: 
-        """
-        self.env = env
+        self.ReplayBuffer = ReplayBuffer(replay_buffer_length, gamma)
 
         #Used as the "second variable" in optimizing the entropy of the produced output distributions
-        self.temperature = torch.tensor(temperature)
+        self.temperature = torch.tensor(init_temperature)
         self.temperature.requires_grad = True
 
     #Optimizing the model according to the replays currently found in the replay-buffer
-    def train(self, iterations, batch_size, dropout, corr_optim, entr_optim, target_entropy = None):
+    def train(self, iterations, batch_size, corr_optim, entr_optim, target_entropy = None, norm_clip = 0.25, dropout = 0):
+        if target_entropy == None:
+            target_entropy = - self.action_range
         for i in range(iterations):
             #Retrieving data from replay buffer, make this be vectorized
             R, S, A = [], [], []
@@ -267,6 +263,8 @@ class ODT:
             #Performing a gradient step for both losses sequentially, warm-up hopefully not necessary due to pre-LN architecture
             loss_corr, entropy = action_likelihood_loss(A_pred, A, self.temperature)
             loss_corr.backward()
+            #We also clip the gradient of this in order to 
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), norm_clip)
             corr_optim(self.transformer.parameters()).step()
 
             loss_entr = action_entropy_loss(self.temperature, entropy, target_entropy)
@@ -274,34 +272,84 @@ class ODT:
             entr_optim(self.transformer.parameters()).step()
 
 
-    #Performing and logging a trajectory in the environment, such that a R, S, A with dimensions d_seq x 1/d_s/d_a are returned
-    def env_step(self, target_rtg):
-        #Appending the next return-to-go 
+    #Performing and logging a trajectory for a number of same environments, such that a R, S, A are added as lists of length 1 x 1/d_s/d_a are added to the replay directory
+    """
+    env: performs a step in the environment; env.step(action) -> s_t+1, r_t, terminated
+    reset(): resets the environment data
+    """
 
-        #Getting the 
-        R_pred, S_pred, A_pred = self.transformer.forward(self.current_traj[0], self.current_traj[1], self.current_traj[2])
+    def sample_traj(self, target_rtg, envs):
+        has_finished = [False for i in range(len(envs))]
 
-        action = A_pred[-1]
-        state, reward, terminated = self.env(action)
-        self.current_traj[0].append(reward)
-        self.current_traj[1].append(state)
-        self.current_traj[2].append(action)
+        states = [[i.reset()] for i in envs]
+        rgs = [[torch.tensor(target_rtg).reshape(1, 1)] for i in range(len(envs))]
 
-        if terminated:
-            self.ReplayBuffer.add_online(self.current_traj[0], self.current_traj[1], self.current_traj[2])
-            self.current_traj = [[], [], []]
-            self.env.reset()
+        #Actions are initialized with 0 and then filled in latr tm
+        actions = [[torch.zeros(1, self.d_action)] for i in range(len(envs))]
+        #Rewards are logged seperately latr tm
+        rewards = [[] for i in envs]
+
+        episode_return = 0
+        while True:
+            #Makes them to 
+            R, S, A = self.pad_inputs(rgs), self.pad_inputs(states), self.pad_inputs(actions)
+
+            #Getting the prediction for the current rtg, state and action sequence for 0-action
+            R_pred, S_pred, A_pred = self.transformer.forward(R, S, A, add_token=False)
+
+            action = A_pred[1, -1, :].sample().reshape(len(envs), )
+            action.clamp(*self.action_range)
+
+            for env in envs:
+                pass
+                        
+            #Appending the next return-to-go to the current return-to-go-save using g_t+1 = (g_t - r_t) / gamma (which makes sense, as g_t-1 = gamma * g_t + r_t-1 <=> g_t = (g_t-1 + r_t-1) / gamma
+            
+
+            episode_return += reward
+            if terminated:
+                break
+
+        self.ReplayBuffer.add_online(self.current_traj[0], self.current_traj[1], self.current_traj[2])
+        self.env.reset()
+        return reward
         
     #Running an iteration and logging the found reward, without returning to replay buffer
     def evaluate(self, env):
         pass
 
-    def add_data(self, traj_list):
-        self.ReplayBuffer.add_offline(traj_list)
+    def add_data(self, R, S, A):
+        self.ReplayBuffer.add_offline(R, S, A)
 
 
 def unit_test():
     actions = [torch.rand(50, 2) for i in range(100)]
     states = [torch.rand(50, 4) for i in range(100)]
     rewards = [torch.rand(50, 1) for i in range(100)]
-    OnlineDecisionTransformer = ODT()
+    class DebugEnv:
+        def __init__(self) -> None:
+            self.opt_action = torch.ones(1, 4)
+        def reset(self):
+            return torch.zeros(1, 4)
+        def step(self, action):
+            return torch.random(1, 4), - torch.cdist(self.opt_action, action).reshape(1, 1)
+        
+    OnlineDecisionTransformer = ODT(4, 2, 8, 1, 124, 2, 10, 5, 1, [-1000, 1000])
+    OnlineDecisionTransformer.add_data(rewards, states, actions)
+    
+    corr_optim = torch.optim.Adam(OnlineDecisionTransformer.transformer.params())
+    entr_optim = torch.optim.Adam([OnlineDecisionTransformer.temperature])
+    
+    #Offline Training
+    for i in range(10):
+        OnlineDecisionTransformer.train(100, 10, corr_optim, entr_optim)
+    
+    #Online Finetuning
+    for i in range(10):
+        OnlineDecisionTransformer.sample_traj(0, [DebugEnv])
+
+    OnlineDecisionTransformer.train(100, 10, corr_optim, entr_optim)
+    
+
+if __name__ == "__main__":
+    unit_test()
