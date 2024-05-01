@@ -94,7 +94,7 @@ def model_eval_linear(params):
         avg += k_fold_cross_val(10, train_data, labels, lin_model.ridge_normal_eq, cost, seed = i) / 3
     return avg
 
-lin_opt = gp_minimize(model_eval_linear, [Integer(1, 20), Real(0, 40)], n_calls = 20)
+lin_opt = gp_minimize(model_eval_linear, [Integer(1, 20), Real(0, 40)], n_calls = 100)
 #Printing out the top results
 print("Linear results:", "Optimum:", lin_opt.fun,"With values", lin_opt.x)
 file_linregr = open(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\LinRegr.txt", "a")
@@ -181,7 +181,7 @@ def model_eval_nn(params):
         avg += k_fold_cross_val(10, train_data, labels, train, cost, seed = i) / 3
     return float(avg)
 
-nn_opt = gp_minimize(model_eval_nn, [Integer(1, 8192), Real(0, 0.9999), Integer(1, 128), Real(0.0001, 0.1), Real(0, 20)], n_calls = 300)
+nn_opt = gp_minimize(model_eval_nn, [Integer(1, 8192), Real(0, 0.9999), Integer(1, 128), Real(0.0001, 0.1), Real(0, 20)], n_calls = 100)
 print("NN results:", "Optimum:", nn_opt.fun,"With values", nn_opt.x)
 file_NN = open(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\NN.txt", "a")
 file_NN.write("\n" + str(now) + ":" + str(nn_opt.fun) + " " + str(nn_opt.x) + " ")
@@ -219,7 +219,7 @@ def model_eval_xgboost(params):
         avg += k_fold_cross_val(10, train_data, labels, train, cost, seed = i) / 3
     return avg
 
-xgboost_opt = gp_minimize(model_eval_xgboost, [Real(0, 20), Real(0.01, 0.5), Integer(3, 10), Integer(100, 1100), Real(0.5, 1), Integer(1, 10), Real(0, 5), Real(0, 5)], n_calls = 20)
+xgboost_opt = gp_minimize(model_eval_xgboost, [Real(0, 20), Real(0.01, 0.5), Integer(3, 10), Integer(100, 1100), Real(0.5, 1), Integer(1, 10), Real(0, 5), Real(0, 5)], n_calls = 100)
 print("XGBoost results:", "Optimum:", xgboost_opt.fun,"With values", xgboost_opt.x)
 file_xgboost = open(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\XGBoost.txt", "a")
 file_xgboost.write("\n" + str(now) + ":" + str(xgboost_opt.fun) + " " + str(xgboost_opt.x) + " ")

@@ -1,7 +1,7 @@
 #Final model parameters were:
-lin_opt = [3, 0.03146046251720122]
-nn_opt = [6000, 0.0, 33, 0, 0.0]
-xgboost_opt = [0.0, 0.19032012543987745, 3, 1100, 1.0, 1, 0.0, 5.0]
+lin_opt = [3, 0.1246]
+nn_opt = [7820, 0.00345299451890726, 94, 0.08899245395667449, 18.920353339025816]
+xgboost_opt = [0.0, 0.07896507820168863, 6, 969, 0.7184912525930043, 2, 0.0, 3.211285854810482]
 
 import xgboost
 import NN
@@ -16,15 +16,17 @@ from torch.utils.data import DataLoader, TensorDataset
 import torch
 from copy import deepcopy
 #Loading in the data and preparing it
-data = pd.read_csv("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\DatensatzTraining_g.csv")
-data = data.drop(['ID_AUFTRAG_ZPM'], axis = 1)
-
+data = pd.read_csv("D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\DatensatzTraining_i.csv")
+#data = data.drop(['BETA_HT_Q_DEB'], axis = 1)
+#data.drop(data.loc[data['EIGENFREQ_ALT_STUFE_5'] >= 24].index, inplace=True)
 labels = data["EIGENFREQ_ALT_STUFE_5"].to_numpy()
 labels = labels.reshape((labels.shape[0], 1))
+data_id = data['ID_AUFTRAG_ZPM'].to_numpy().reshape(-1, 1)
+data = data.drop(['ID_AUFTRAG_ZPM'], axis = 1)
 data = data.drop(["EIGENFREQ_ALT_STUFE_5"], axis = 1)
 train_data = data.to_numpy()
 
-data_unknown = pd.read_csv(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\data_deployment_Modell_g.csv")
+data_unknown = pd.read_csv(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\data_deployment_Modell_i.csv")
 data_unknown = data_unknown.to_numpy()
 data_id = data_unknown[:, 0]
 data_stw = data_unknown[:, 2]
@@ -65,7 +67,7 @@ lin_model = LinRegr.polynomial_regression(train_data.shape[1], _lambda = lin_opt
 def cost(features, labels):
     return NN.mape(labels, lin_model.predict(features))
 avg = 0
-for i in range(3):
+for i in range(0):
     val = k_fold_cross_val(10, train_data, labels, lin_model.ridge_normal_eq, cost, seed = i)
     print(val)
     avg += val / 3
@@ -123,7 +125,7 @@ def nn_cost(features, labels):
     return torch.mean(torch.abs((torch.from_numpy(labels) - nn(torch.from_numpy(features_test))) / torch.from_numpy(labels)))
 
 avg = 0
-for i in range(3):
+for i in range(0):
     val = k_fold_cross_val(10, train_data, labels, nn_train, nn_cost, seed = i)
     print(val)
     avg += val / 3
@@ -137,7 +139,7 @@ def cost(features, labels):
     pred = xgboost_reg.predict(features).reshape(labels.shape[0], 1)
     return NN.mape(labels, pred)
 avg = 0
-for i in range(3):
+for i in range(0):
     val = k_fold_cross_val(10, train_data, labels, train, cost, seed = i)
     print(val)
     avg += val / 3
@@ -147,10 +149,10 @@ print("-----------")
 #Training the linear model with the optimal hyperparameters, visualizing
 print("Starting visualization linear:")
 lin_model = LinRegr.polynomial_regression(train_data.shape[1], _lambda = lin_opt[1], degree = lin_opt[0])
-lin_model.ridge_normal_eq(train_data[:int(train_data.shape[0] * 0.8)], labels[:int(train_data.shape[0] * 0.8)])
-print(NN.mape(labels[int(train_data.shape[0] * 0.8):],lin_model.predict(train_data[int(train_data.shape[0] * 0.8):])))
+lin_model.ridge_normal_eq(train_data[:int(train_data.shape[0] * 0.9)], labels[:int(train_data.shape[0] * 0.9)])
+print(NN.mape(labels[int(train_data.shape[0] * 0.9):],lin_model.predict(train_data[int(train_data.shape[0] * 0.9):])))
 figure, axis = plt.subplots(3, 1)
-axis[0].scatter(labels[int(train_data.shape[0] * 0.8):], lin_model.predict(train_data[int(train_data.shape[0] * 0.8):]))
+axis[0].scatter(labels[int(train_data.shape[0] * 0.9):], lin_model.predict(train_data[int(train_data.shape[0] * 0.9):]))
 axis[0].set_title("Linear")
 line = mlines.Line2D([0, 1], [0, 1], color='red')
 transform = axis[0].transAxes
@@ -161,9 +163,9 @@ axis[0].add_line(line)
 
 #Training the nn_model, visualizing
 print("Starting visualization nn:")
-nn_train(train_data[:int(train_data.shape[0] * 0.8)], labels[:int(train_data.shape[0] * 0.8)])
-print(nn_cost(train_data[int(train_data.shape[0] * 0.8):], labels[int(train_data.shape[0] * 0.8):]))
-axis[1].scatter(labels[int(train_data.shape[0] * 0.8):], nn(torch.from_numpy((train_data[int(train_data.shape[0] * 0.8):] - norm[0]) / norm[1])).detach().numpy())
+nn_train(train_data[:int(train_data.shape[0] * 0.9)], labels[:int(train_data.shape[0] * 0.9)])
+print(nn_cost(train_data[int(train_data.shape[0] * 0.9):], labels[int(train_data.shape[0] * 0.9):]))
+axis[1].scatter(labels[int(train_data.shape[0] * 0.9):], nn(torch.from_numpy((train_data[int(train_data.shape[0] * 0.9):] - norm[0]) / norm[1])).detach().numpy())
 axis[1].set_title("NN")
 line = mlines.Line2D([0, 1], [0, 1], color='red')
 transform = axis[1].transAxes
@@ -174,9 +176,9 @@ axis[1].add_line(line)
 
 #Training the xgboost model, visualizing
 print("Starting visualization xgboost:")
-train(train_data[:int(train_data.shape[0] * 0.8)], labels[:int(train_data.shape[0] * 0.8)])
-print(cost(train_data[int(train_data.shape[0] * 0.8):], labels[int(train_data.shape[0] * 0.8):]))
-axis[2].scatter(labels[int(train_data.shape[0] * 0.8):], xgboost_reg.predict(train_data[int(train_data.shape[0] * 0.8):]))
+train(train_data[:int(train_data.shape[0] * 0.9)], labels[:int(train_data.shape[0] * 0.9)])
+print(cost(train_data[int(train_data.shape[0] * 0.9):], labels[int(train_data.shape[0] * 0.9):]))
+axis[2].scatter(labels[int(train_data.shape[0] * 0.9):], xgboost_reg.predict(train_data[int(train_data.shape[0] * 0.9):]))
 axis[2].set_title("XGBoost")
 line = mlines.Line2D([0, 1], [0, 1], color='red')
 transform = axis[2].transAxes
@@ -199,7 +201,7 @@ print("Starting saving nn:")
 nn_train(train_data, labels)
 pred_nn = nn(torch.from_numpy((data_unknown - norm[0]) / norm[1])).detach().numpy()
 print(NN.mape(nn(torch.from_numpy((train_data - norm[0]) / norm[1])).detach().numpy(), labels))
-plt.scatter(data_stw, pred_nn)
+plt.scatter(np.log10(data_stw), np.log10(pred_nn))
 plt.show()
 np.savetxt(r"D:\Damian\PC\Python\ML\Supervised_Learning\Projects\Brücken\NN.csv", np.hstack((data_id.reshape(-1, 1), pred_nn, data_stw.reshape(-1, 1))), delimiter=",")
 
