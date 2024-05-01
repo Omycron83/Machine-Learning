@@ -1,6 +1,7 @@
 #Problemparameter:
-Objects = [(Weight, Value), ...] #Gegenstandsliste, nach Gewicht sortiert
-Maximalgewicht = Ausgangswert #Maximalgewicht, das haltbar ist
+#Objects = [(Weight, Value), ...] #Gegenstandsliste, nach Gewicht sortiert
+#Maximalgewicht = Ausgangswert #Maximalgewicht, das haltbar ist
+
 
 #Aufstellung des Lösungsspeichers := 'M' als n = 2 -D 'Array'
 M = [[0 for i in range(Maximalgewicht)] for j in range(len(Objects))]

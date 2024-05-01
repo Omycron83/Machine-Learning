@@ -128,4 +128,4 @@ def sobel_filter_number():
     plt.imshow(pic_conv_hori, cmap = 'gray', vmax = 255, vmin = 0)
     plt.show()
 
-unit_pooling_conv()
+sobel_filter_number()

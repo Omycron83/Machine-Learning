@@ -225,6 +225,8 @@ class Transformer(nn.Module):
             #Encoder-Block
             for i in range(self.enc_layers):
                 curr_repr = self.encoder[i](curr_repr, dropout, mask_indices = input_mask_rows)
+        else:
+            input_mask_rows = None
 
         #Decoder-Part:
         if self.dec_layers > 0:
@@ -247,8 +249,30 @@ class Transformer(nn.Module):
         output = self.output_layer(curr_repr)
         for i in range(output.shape[0]):
             output[i, output_mask_rows[i], :] = 0
-        #Return everything but the arbitrarily formed start-of-sequence-token and mask the padding values to zero so that they have no error
+        #Return everything but the arbitrarily formed start-of-sequence-token and mask the padding values to zero so that they have no error during training
         return output[:, 1:, :]
+    
+    #Returns the last n predictions batched as a list of torch arrays
+    def get_prediction(self, X, output, dropout = 0, add_token = True, num_tokens = 1):
+        transform_outputs = self.forward(X, output, dropout = 0, add_token = True)
+
+        result = torch.zeros(transform_outputs.shape[0], transform_outputs.shape[1], transform_outputs.shape[2])
+
+        for i in range(transform_outputs.shape[0]):
+            # Find indices of non-zero values along the second dimension
+            nonzero_indices = (transform_outputs[i, :, :] != 0).nonzero(as_tuple=True)[0]
+            # Check if there are enough non-zero values, if not replace everything up them
+            if len(nonzero_indices) >= num_tokens:
+                # Get the last n non-zero indices
+                last_n_indices = nonzero_indices[-num_tokens:]
+                # Assign the corresponding values to the result tensor
+                result[i, :, :] = transform_outputs[i, last_n_indices, :]
+            else:
+
+                last_n_indices = nonzero_indices[-num_tokens:]
+                result[i, :, :] = transform_outputs[i, last_n_indices, :]
+    
+        return result
     
     #Assumes a list of tensor-inputs of variable size d_seq x d_input/output and trims them down or pads them w/ zeros to conform with the sequence length for encoder and decoder
     def pad_inputs(self, inputs):

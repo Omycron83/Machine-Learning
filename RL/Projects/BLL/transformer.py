@@ -3,6 +3,7 @@
 #Content: A modular implementation of the default transformer architecture 
 #The model can be applied to one sequence at a time, with a modular-length input- and output-sequence, and then conditioned on a following value
 #using the Pytorch - Dynamic Computational Graph for Per-Sequence-Training and Prediction
+#Purely demonstrational, find the transformer_improved.py file for a practical implementation
 
 import torch
 import torch.nn as nn
@@ -172,8 +173,8 @@ class Transformer(nn.Module):
 
         #Decoder-Part:
         if self.dec_layers > 0:
-            #Begin of sequence vector, arbitrarily choosen to be the zero vectors
-            output = torch.cat([torch.zeros(1, output.shape[1]), output], dim = 0)
+            #Begin of sequence vector, arbitrarily choosen to be the one vector
+            output = torch.cat([torch.ones(1, output.shape[1]), output], dim = 0)
             #Re-assigning the (existing) encoder values and current input values, using embedding
             if self.enc_layers > 0:
                 enc_repr, curr_repr = curr_repr, self.output_embedding_layer(output)

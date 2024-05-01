@@ -12,6 +12,7 @@ import random
 import pickle
 import gym
 import numpy as np
+from stable_baselines3.common.vec_env import SubprocVecEnv
 
 #A replay buffer saving trajectories of the form (g_t, s_t, a_t) in three seperate lists, each containing lists of tensors of shape 1 x d_g/s/a
 #This enables us to treat each of them as a seperate sequence for now, and then link them during the ODT implementation
@@ -29,7 +30,7 @@ class ReplayBuffer:
         if K == None:
             K = self.max_length
         traj_lengths = [len(g) for g in self.g]
-        chosen_traj_index = random.choice(list(range(len(self.g))), weights=traj_lengths) #Picks an index proportional to the length of the trajectory at that index
+        chosen_traj_index = random.choices(list(range(len(self.g))), weights=traj_lengths)[0] #Picks an index proportional to the length of the trajectory at that index
 
         if len(self.g[chosen_traj_index]) > K:
             slice_index = random.randint(0, len(self.g[chosen_traj_index]) - K)
@@ -40,32 +41,33 @@ class ReplayBuffer:
 
     def hindsight_return_labeling(self, R):
         #Making a deep-copy as to mitigate external errors in reuse trajectories
-        traj_list = deepcopy(traj_list)
+        R = deepcopy(R)
         #Updating trajectory return-to-go as discounted sum in hindsight return labeling in monte-carlo fashion
-        for j in range(len(traj_list)):
-            for i in range(1, traj_list[j].shape[0] + 1):
+        for j in range(len(R)):
+            for i in range(1, len(R[j]) + 1):
                 if i != 1:
-                    traj_list[j][-i, 0] += self.gamma * traj_list[j][-(i - 1), 0]
-        return traj_list
+                    R[j][-i] += self.gamma * R[j][-(i - 1)]
+        return R
 
     #Inputs a list of lists for r, s and a (e.g. R = [[1, 1, 1], [2, 3, 4], [5, 43, 5]], A = [[tensor_1, ...], [tensor_1, ...], [tensor_1, ...]])
     def add_offline(self, R, S, A):
-        self.a.append(A)
-        self.g.append(self.hindsight_return_labeling(R))
-        self.s.append(S)
-
-        #Sorting the list and deleting 'over-the-top' elements, done according to the first element of the r-Tensors 
-        self.a, self.g, self.s = zip(*zip(self.a, self.g, self.s).sort(key = lambda triple_trajectories: float(triple_trajectories[1][0, :])))
-        if len(self.content) > self.max_length:
-            self.a[-(len(self.a) - self.max_length):] = []
-            self.g[-(len(self.g) - self.max_length):] = []
-            self.s[-(len(self.s) - self.max_length):] = []
+        self.a += A
+        self.g += self.hindsight_return_labeling(R)
+        self.s += S
+        #Sorting according to the first element of the r-Tensors such taht the highest value trajectories are at the back (increasing)
+        self.a, self.g, self.s = zip(*sorted(zip(self.a, self.g, self.s), key = lambda triple_trajectories: float(triple_trajectories[1][0][0])))
+        self.a, self.g, self.s = list(self.a), list(self.g), list(self.s)
+        #Sorting the list and deleting 'over-the-top' elements from the front on  
+        if len(self.g) > self.max_length:
+            self.a[0:(len(self.a) - self.max_length)] = []
+            self.g[0:(len(self.g) - self.max_length)] = []
+            self.s[0:(len(self.s) - self.max_length)] = []
         
-    #Assumes input lists for R, S and A
+    #Assumes input lists for R, S and A as list of trajectories, which are also saved as lists: we append to the back (new directories to the highest) and delete from the front
     def add_online(self, R, S, A):
-        self.a.append(A)
-        self.g.append(self.hindsight_return_labeling(R))
-        self.s.append(S)
+        self.a += A
+        self.g += self.hindsight_return_labeling(R)
+        self.s += S
         if len(self.a) > self.max_length:
             self.a.pop(0)
             self.g.pop(0)
@@ -158,7 +160,7 @@ class OutputDist(torch.nn.Module):
 #Outputs the suspected return given the state and an action taken, the 
 class OutputLayer(torch.nn.Module):
     def __init__(self, model_dim, dim_s, dim_a, log_std_bounds = [-5.0, 2.0]) -> None:
-        super.__init__()
+        super().__init__()
         self.model_dim = model_dim
 
         #Stochastic policy
@@ -177,6 +179,7 @@ class OutputLayer(torch.nn.Module):
 #Embedding for the three inputs, used right after having split them off
 class ODTEmb(torch.nn.Module):
     def __init__(self, d_state, d_action, d_model):
+        super().__init__()
         self.WR = torch.nn.Parameter(torch.nn.init.xavier_uniform_(torch.empty(1, d_model))) # Embedding matrix for the rewards
         self.WS = torch.nn.Parameter(torch.nn.init.xavier_uniform_(torch.empty(d_state, d_model))) # Embedding matrix for the rewards
         self.WA = torch.nn.Parameter(torch.nn.init.xavier_uniform_(torch.empty(d_action, d_model))) # Embedding matrix for the rewards
@@ -187,7 +190,7 @@ class ODTEmb(torch.nn.Module):
         #Multiplying them with the encoding matrices so that they are all of size d_batch x d_max_sequence x d_model, and then concatenating them to a d_batch x d_max_sequence * 3 x d_model tensor
         R, S, A = R @ self.WR, S @ self.WS, A @ self.WA
         #Temporarily stacking the values along a new dimension, such that for each batch entry there are now three seperate sequences in the tensor
-        curr_repr = torch.stack(R, S, A, dim = 1)
+        curr_repr = torch.stack( (R, S, A), dim = 1)
         #Swapping the dimension 1 (along which the three input-types are represented) and the dimension 2 (along which the datapoints are ordered) -> instead of having three different representations for d_seq datapoints, we have d_seq datapoints with the three entries 
         curr_repr.permute(0, 2, 1, 3)
         #Collapsing the d_seq datapoints with 3 values each to one tensor of the final desired size
@@ -212,7 +215,7 @@ class ODTTransformer(transformer_improved.Transformer):
 
     def forward(self, R, S, A, dropout=0, add_token = True):
         #Applying the ODT-specific embedding layer
-        output_seq = ODTEmb(R, S, A)
+        output_seq = self.ODTEmb(R, S, A)
 
         #One may notice that we applied the positional encoding to the 3-sequence, instead of to each R, S, A-sequence in seperate
         #I postulate that this helps differentiating the meaning of the three while still preserving a notion of distance across time
@@ -234,7 +237,7 @@ class ODT:
         self.context_length = context_length
 
         #Initializes the function approximator in this type of task
-        self.transformer = ODTTransformer(d_state, d_action, d_model, n_head, dim_ann, ODTEmb, 0, dec_layers, OutputDist, context_length)
+        self.transformer = ODTTransformer(d_state, d_action, d_model, n_head, dim_ann, dec_layers, context_length)
 
         #Initializes the replay buffer to facilitate storing, retrieval and hindsight-return-labeling
         self.ReplayBuffer = ReplayBuffer(replay_buffer_length, gamma)
@@ -246,7 +249,7 @@ class ODT:
     #Optimizing the model according to the replays currently found in the replay-buffer
     def train(self, iterations, batch_size, corr_optim, entr_optim, target_entropy = None, norm_clip = 0.25, dropout = 0):
         if target_entropy == None:
-            target_entropy = - self.action_range
+            target_entropy = - abs(self.action_range[0] - self.action_range[1])
         for i in range(iterations):
             #Retrieving data from replay buffer, make this be vectorized
             R, S, A = [], [], []
@@ -257,7 +260,7 @@ class ODT:
                 A.append(a)
             
             #Padding the lists of torch arrays to have the right size, combining them to the respective arrays
-            R, S, A = self.pad_inputs(R), self.pad_inputs(S), self.pad_inputs(A)
+            R, S, A = self.transformer.pad_inputs(R), self.transformer.pad_inputs(S), self.transformer.pad_inputs(A)
             
             #Getting the prediction for this part of the model
             R_pred, S_pred, A_pred = self.transformer.forward(R, S, A, dropout) 
@@ -272,59 +275,49 @@ class ODT:
             loss_entr = action_entropy_loss(self.temperature, entropy, target_entropy)
             loss_entr.backward()
             entr_optim(self.transformer.parameters()).step()
-
-
-    #Performing and logging a trajectory for a number of same environments, such that a R, S, A are added as lists of length 1 x 1/d_s/d_a are added to the replay directory
+    
+    #Performing and logging a trajectory for an environment, such that a R, S, A are added as lists of length 1 x 1/d_s/d_a are added to the replay directory
     """
+    Each individual environment should, in theory, 
     env: performs a step in the environment; env.step(action) -> s_t+1, r_t, terminated
     reset(): resets the environment data
     """
+    def evaluate_env(self, target_rtg, env, max_episode_len):
+        state = env.reset()
+        
+        states = [torch.from_numpy(state).reshape(1, self.d_state)]
+        actions = [torch.zeros(1, self.d_action)]
+        rewards = [torch.tensor(0).reshape(1,1)]
+        target_returns = [torch.tensor(target_rtg).reshape(1, 1)]
 
-    def sample_traj(self, target_rtg, envs):
-        # Essentially think of the things in environments as different batches being processed at the same time
-        has_finished = [False for i in range(len(envs))]
+        acc_reward = 0
+        for i in range(max_episode_len):
+            R, S, A = self.model.pad_inputs([target_returns]), self.model.pad_inputs([states]), self.model.pad_inputs([actions])
 
-        num_envs = envs.num_envs
-        state = envs.reset()
+            R_pred, S_pred, action_dist = self.transformer.forward(R, S, A, add_token=False)
+            action = action_dist.sample().reshape(1, self.d_action)[:, -1]
+            action = action.clamp(*self.action_range)
 
-        states = [[i.reset()] for i in envs]
-        rgs = [[torch.tensor(target_rtg).reshape(1, 1)] for i in range(len(envs))]
+            state, reward, done, _ = env.step(action)
 
-        #Actions are initialized with 0 and then filled in latr tm
-        actions = [[torch.zeros(1, self.d_action)] for i in range(len(envs))]
-        #Rewards are logged seperately latr tm
-        rewards = [[] for i in envs]
+            #Logging the return
+            acc_reward += reward
 
-        episode_return = [0 for i in range(len(envs))]
-        while True:
-            #Makes them to 
-            R, S, A = self.pad_inputs(rgs), self.pad_inputs(states), self.pad_inputs(actions)
+            #Logging the things that happened at this step, i.e. completing s, a, r - sequence
+            rewards[-1] = torch.tensor(reward).reshape(1, 1)
+            action[-1] = action.reshape(1, self.d_action)
 
-            #Getting the prediction for the current rtg, state and action sequence for 0-action
-            R_pred, S_pred, A_pred = self.transformer.forward(R, S, A, add_token=False)
-
-            action = A_pred[:, -1, :].reshape(len(envs), -1, self.d_action)[:, -1]
-            action.clamp(*self.action_range)
-
-            for i in range(len(envs)):
-                state, reward, terminated = envs[i].step(action)
-
-                if terminated:
-
-                if 
-
-
-                        
-            #Appending the next return-to-go to the current return-to-go-save using g_t+1 = (g_t - r_t) / gamma (which makes sense, as g_t-1 = gamma * g_t + r_t-1 <=> g_t = (g_t-1 + r_t-1) / gamma
-            
-
-            episode_return += reward
-            if not False in has_finished:
+            #Preparing the next step by adding rtg
+            if not done:
+                states.append(torch.from_numpy(state))
+                actions.append(torch.zeros(1, self.d_action))
+                target_returns.append(target_returns[-1] - rewards[-1])
+            else:
                 break
 
-        self.ReplayBuffer.add_online(self.current_traj[0], self.current_traj[1], self.current_traj[2])
-        self.env.reset()
-        return reward
+        self.ReplayBuffer.add_online([rewards], [states], [actions])
+
+        return acc_reward
         
     #Running an iteration and logging the found reward, without returning to replay buffer
     def evaluate(self, env):
@@ -333,6 +326,10 @@ class ODT:
     def add_data(self, R, S, A):
         self.ReplayBuffer.add_offline(R, S, A)
 
+def load_eorl_dataset(env_name):
+    from eorl import OfflineDataset
+    ds = OfflineDataset(env = env_name, dataset_size=50000, train_split=1, obs_only=False, framestack=1, shuffle=False)
+    obs, actions, rewards, dones, next_obs = ds.batch(batchsize=50000, split='train')
 
 def unit_test():
     actions = [torch.rand(50, 2) for i in range(100)]
@@ -341,6 +338,8 @@ def unit_test():
     OnlineDecisionTransformer = ODT(4, 2, 8, 1, 124, 2, 10, 5, 1, [-1000, 1000])
     OnlineDecisionTransformer.add_data(rewards, states, actions)
     
+    """"""
+    # A testing environment whos goal is to basically find the vector minimizing some norm
     class DictEnv(gym.Env):
         def __init__(self):
             self.observation_space = gym.spaces.Dict({"position": gym.spaces.Box(-1., 1., (3,), np.float32),"velocity": gym.spaces.Box(-1., 1., (2,), np.float32)})
@@ -358,7 +357,7 @@ def unit_test():
             self.counter += 1
             return (observation, np.linalg.norm(action-observation), self.counter >= self.max, {})
         
-    corr_optim = torch.optim.Adam(OnlineDecisionTransformer.transformer.params())
+    corr_optim = torch.optim.Adam(OnlineDecisionTransformer.transformer.parameters())
     entr_optim = torch.optim.Adam([OnlineDecisionTransformer.temperature])
     
     #Offline Training
@@ -367,8 +366,7 @@ def unit_test():
     
     #Online Finetuning
     for i in range(10):
-        OnlineDecisionTransformer.sample_traj(0, [lambda: DictEnv()] * 3)
-
+        OnlineDecisionTransformer.evaluate_env(0, DictEnv())
     OnlineDecisionTransformer.train(100, 10, corr_optim, entr_optim)
     
 
